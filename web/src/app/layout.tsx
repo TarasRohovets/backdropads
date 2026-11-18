@@ -20,7 +20,7 @@ const mono = JetBrains_Mono({
 
 export const metadata: Metadata = {
   title: "BackdropAds",
-  description: "Open-source AI ad generator for ecommerce: turn product photos into ready-to-run image and video ads.",
+  description: "Open-source AI ad generator: turn a prompt, a photo or a link into ready-to-run image and video ads.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

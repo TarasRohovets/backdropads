@@ -5,8 +5,12 @@
 ![Next.js](https://img.shields.io/badge/web-Next.js%2015-black)
 ![.NET](https://img.shields.io/badge/api-.NET%209-512BD4)
 
-**AI ads for your store, at the price the AI providers charge.** Upload a product photo or paste a product link
-and get image and video ads built around your real product, in every ad size.
+**AI ads for anything you promote, at the price the AI providers charge.** Describe the ad, start from a photo
+or paste a link, and get image and video ads sized for Instagram, Facebook, TikTok, YouTube, Pinterest and
+Google Display.
+
+Use it for a product, an app, a service, an event or a client's brand. Download the result and run it wherever
+you advertise.
 
 BackdropAds is open source and you host it yourself. You plug in your own Google or OpenAI key and pay them
 directly: about $0.03 for an image with Nano Banana, about $0.70 for a 10-second video with Gemini Omni.
@@ -18,17 +22,19 @@ This repository is the whole app. One command starts it. There is no account to 
 
 ## Features
 
-- **Start from your product.** A photo, several photos, or a product link. Refer to photos in the prompt:
-  "put the serum from image 1 next to the cream from image 2".
+- **Start from anything.** A prompt, a photo, several photos, or a link to a page. Refer to photos in the
+  prompt: "put the serum from image 1 next to the cream from image 2".
+- **Sized for every platform.** Pick the platform and placement (feed, story, reel, short, pin, display) and
+  the ad comes out in the right shape.
 - **Pick the model.** Nano Banana, GPT Image, Gemini Omni, Seedance, Kling, FLUX and more, each with its
   estimated cost shown before you generate.
 - **No silent swaps.** If the model you picked isn't responding, you're offered a working one. You choose.
 - **Flows.** Chain prompts into a pipeline (rebrand, stage, refine) that ends in images or videos. Re-run it
-  for the next product.
+  for the next campaign.
 - **Upload library.** Every photo, PDF and text file you upload stays available for the next ad. PDFs and text
   are read by an LLM first, so only the relevant facts reach the image or video prompt.
 - **Refine with a sentence.** "Make the background darker." Every version is kept.
-- **Brand kits and workspaces.** One workspace per brand, store or client, each with its own colors, voice and ads.
+- **Brand kits and workspaces.** One workspace per brand, project or client, each with its own colors, voice and ads.
 - **Know what you spend.** Usage and estimated cost for the last 7 and 30 days, per model.
 - **Models that stay current.** Providers retire models all the time. A weekly check tells you when one is gone,
   and one button (**Update models**) moves every model to its provider's newest version.
