@@ -1,0 +1,52 @@
+# BackdropAds — everything in one command:  docker compose up -d
+# Then open http://localhost:3000. There is no sign-in, so by default it only answers on this computer.
+name: backdropads
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: backdropads
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-backdropads}
+      POSTGRES_DB: backdropads
+    volumes:
+      - db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U backdropads -d backdropads"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build: ./api
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      ConnectionStrings__PostgresConnection: Host=db;Database=backdropads;Username=backdropads;Password=${POSTGRES_PASSWORD:-backdropads}
+      # Demo mode: placeholders instead of real AI calls.
+      AI__UseMockData: ${AI_USE_MOCK:-false}
+      # Your AI provider keys (set them in .env). A provider without a key is simply skipped.
+      AI__Google__ApiKey: ${GOOGLE_API_KEY:-}
+      AI__OpenAI__ApiKey: ${OPENAI_API_KEY:-}
+      AI__Seedance__ApiKey: ${SEEDANCE_API_KEY:-}
+      AI__Kling__AccessKey: ${KLING_ACCESS_KEY:-}
+      AI__Kling__SecretKey: ${KLING_SECRET_KEY:-}
+      AI__Fal__ApiKey: ${FAL_API_KEY:-}
+    volumes:
+      - media:/data
+
+  web:
+    build: ./web
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      # 127.0.0.1 = this computer only. There is no sign-in: read "Security" in the README before changing it.
+      - "${BIND_ADDRESS:-127.0.0.1}:${WEB_PORT:-3000}:3000"
+
+volumes:
+  db:      # your ads, flows, brand kits, workspaces
+  media:   # generated images / videos and uploads

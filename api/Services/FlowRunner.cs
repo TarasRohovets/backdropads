@@ -1,0 +1,361 @@
+using BackdropAds.Api.Data;
+using BackdropAds.Api.Domain;
+using BackdropAds.Api.Services.Providers;
+
+namespace BackdropAds.Api.Services;
+
+/// <summary>
+/// Executes a flow in the background, step by step in edge order:
+/// - Prompt step: edits its input image with the prompt (input = previous step's result when
+///   "build on previous" is on, else the first image attachment), or generates from scratch.
+///   The result feeds the next step.
+/// - Output card: creates a real Generation (brief = the upstream prompts, reference = the
+///   upstream result) so results land on the normal results page and can be saved to My Ads.
+/// A run's estimated provider cost is quoted up front (see Plan) and corrected to what really ran.
+/// </summary>
+public class FlowRunner(
+    IServiceScopeFactory scopes,
+    ImageEditRouter editor,
+    ProviderRouter providers,
+    DocumentReader documentReader,
+    IConfiguration configuration,
+    ILogger<FlowRunner> logger)
+{
+    public sealed record RunPlan(List<string> Order, decimal EstimatedCostUsd, bool HasVideo, string? Error);
+
+    /// <summary>Validate the flow and estimate its cost. Error is null when it can run.</summary>
+    public static RunPlan Plan(Flow flow)
+    {
+        var outputs = flow.Nodes.Where(n => n.Type == "output").ToList();
+        if (outputs.Count == 0)
+            return new([], 0, false, "Add an output card so the flow knows what to make.");
+
+        var emptySteps = flow.Nodes.Count(n => n.Type == "prompt" && string.IsNullOrWhiteSpace(n.Data.Prompt));
+        if (emptySteps > 0)
+            return new([], 0, false, emptySteps == 1 ? "One step has no prompt yet." : $"{emptySteps} steps have no prompt yet.");
+
+        var orphanOutputs = outputs.Count(o => !flow.Edges.Any(e => e.Target == o.Id));
+        if (orphanOutputs > 0 && flow.Nodes.Any(n => n.Type == "prompt"))
+            return new([], 0, false, "Connect every output card to a step.");
+
+        var hasVideo = outputs.Any(o => o.Data.Mode == "video");
+
+        var unknown = outputs.FirstOrDefault(o => OutputModel(o) is null);
+        if (unknown is not null)
+            return new([], 0, false, $"Unknown model '{unknown.Data.Model}' on an output card.");
+
+        var cost = flow.Nodes.Sum(n => n.Type == "prompt" ? ModelCatalog.EditCostUsd : OutputCost(n));
+
+        return new(TopologicalOrder(flow), cost, hasVideo, null);
+    }
+
+    private static AiModel? OutputModel(FlowNode node)
+    {
+        var kind = node.Data.Mode == "video" ? ModelKind.Video : ModelKind.Image;
+        return string.IsNullOrWhiteSpace(node.Data.Model) ? ModelCatalog.Preferred(kind) : ModelCatalog.Find(kind, node.Data.Model);
+    }
+
+    /// <summary>Output cards cost the same as the equivalent generation.</summary>
+    private static decimal OutputCost(FlowNode node)
+    {
+        var model = OutputModel(node) ?? ModelCatalog.Default(node.Data.Mode == "video" ? ModelKind.Video : ModelKind.Image);
+        var isVideo = model.Kind == ModelKind.Video;
+        var count = Math.Clamp(node.Data.Count ?? 1, 1, isVideo ? 2 : 6);
+        return ModelCatalog.CostUsd(model, node.Data.Quality, isVideo ? ModelCatalog.Duration(model, node.Data.DurationSeconds) : 0, count);
+    }
+
+    /// <summary>Kahn's algorithm, left-to-right for ties; nodes in cycles go last so a run never hangs.</summary>
+    public static List<string> TopologicalOrder(Flow flow)
+    {
+        var indegree = flow.Nodes.ToDictionary(n => n.Id, _ => 0);
+        foreach (var e in flow.Edges) if (indegree.ContainsKey(e.Target)) indegree[e.Target]++;
+        var queue = new List<string>(flow.Nodes.Where(n => indegree[n.Id] == 0).OrderBy(n => n.Position.X).Select(n => n.Id));
+        var order = new List<string>();
+        while (queue.Count > 0)
+        {
+            var id = queue[0];
+            queue.RemoveAt(0);
+            order.Add(id);
+            foreach (var e in flow.Edges.Where(e => e.Source == id))
+            {
+                if (!indegree.ContainsKey(e.Target)) continue;
+                if (--indegree[e.Target] == 0) queue.Add(e.Target);
+            }
+        }
+        order.AddRange(flow.Nodes.Select(n => n.Id).Where(id => !order.Contains(id)));
+        return order;
+    }
+
+    /// <summary>Background work runs after the request ends: each unit of work gets its own scope (DbContext) and saves.</summary>
+    private T WithStore<T>(Func<AppStore, T> work)
+    {
+        using var scope = scopes.CreateScope();
+        var store = scope.ServiceProvider.GetRequiredService<AppStore>();
+        var result = work(store);
+        store.Save();
+        return result;
+    }
+
+    /// <summary>Write the run's progress onto the flow so GET /runs/{id} (any instance) sees it.</summary>
+    private void PersistRun(FlowRun run)
+    {
+        try
+        {
+            WithStore(store =>
+            {
+                if (store.GetFlowById(run.FlowId) is { } flow) flow.LastRun = run;
+                return 0;
+            });
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Couldn't save progress of flow run {RunId}", run.Id);
+        }
+    }
+
+    /// <summary>Kick off a run. Returns immediately; the run updates as it goes.</summary>
+    public FlowRun Start(Flow flow, User user, RunPlan plan)
+    {
+        var run = new FlowRun
+        {
+            Id = Ids.New("run"),
+            FlowId = flow.Id,
+            WorkspaceId = flow.WorkspaceId,
+            Status = "running",
+            EstimatedCostUsd = plan.EstimatedCostUsd,
+            StartedAt = DateTimeOffset.UtcNow,
+            Steps = plan.Order.Select(id => new FlowRunStep { NodeId = id, Status = "queued" }).ToList(),
+        };
+        flow.LastRun = run;
+
+        // Snapshot the graph so edits made while it runs don't change this run.
+        var nodes = flow.Nodes.ToDictionary(n => n.Id);
+        var edges = flow.Edges.ToList();
+        _ = Task.Run(() => ExecuteAsync(flow.Name, user, run, nodes, edges));
+        return run;
+    }
+
+    private bool MockPacing => configuration.GetValue("AI:UseMockData", true);
+
+    private async Task ExecuteAsync(string flowName, User user, FlowRun run, Dictionary<string, FlowNode> nodes,
+        List<FlowEdge> edges)
+    {
+        var spent = 0m; // what really ran, at list prices
+        try
+        {
+            foreach (var step in run.Steps)
+            {
+                if (!nodes.TryGetValue(step.NodeId, out var node)) { step.Status = "done"; continue; }
+                step.Status = "running";
+                PersistRun(run);
+
+                if (node.Type == "prompt")
+                {
+                    if (MockPacing) await Task.Delay(900); // so the board visibly steps through in mock mode
+                    spent += await RunPromptStepAsync(run, step, node, nodes, edges);
+                }
+                else
+                {
+                    spent += await RunOutputAsync(flowName, user, run, step, node, nodes, edges);
+                }
+
+                step.Status = "done";
+            }
+
+            run.Status = "completed";
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Flow run {RunId} failed", run.Id);
+            var reason = ex is OutputFailedException failed ? failed.Message : null;
+            var current = run.Steps.FirstOrDefault(s => s.Status == "running");
+            if (current is not null) { current.Status = "failed"; current.Error = reason ?? "This step couldn't finish."; }
+            run.Status = "failed";
+            run.Error = reason ?? "The run stopped before finishing.";
+        }
+        finally
+        {
+            run.EstimatedCostUsd = spent;
+            run.FinishedAt = DateTimeOffset.UtcNow;
+            PersistRun(run);
+        }
+    }
+
+    /// <summary>Upstream prompt step whose result this node builds on (the first done predecessor).</summary>
+    private static FlowRunStep? PreviousResult(FlowRun run, FlowNode node, Dictionary<string, FlowNode> nodes, List<FlowEdge> edges) =>
+        edges.Where(e => e.Target == node.Id)
+            .Select(e => run.Steps.FirstOrDefault(s => s.NodeId == e.Source && s.Status == "done"))
+            .FirstOrDefault(s => s is not null && nodes.TryGetValue(s.NodeId, out var n) && n.Type == "prompt");
+
+    /// <summary>Runs one prompt step and returns its estimated provider cost.</summary>
+    private async Task<decimal> RunPromptStepAsync(FlowRun run, FlowRunStep step, FlowNode node, Dictionary<string, FlowNode> nodes, List<FlowEdge> edges)
+    {
+        var prompt = node.Data.Prompt!.Trim();
+        // PDFs / text attached to this step: the LLM reads them; its notes extend the step's prompt.
+        var documents = DocumentUrls(node);
+        if (documents.Count > 0 && await documentReader.DigestAsync(documents, prompt) is { Length: > 0 } notes)
+            prompt += $"\n\nFrom the attached documents:\n{notes}";
+        var previous = node.Data.UsePrevious != false ? PreviousResult(run, node, nodes, edges) : null;
+        var attachedImages = (node.Data.Attachments ?? []).Where(a => a.Kind == "image" && !string.IsNullOrWhiteSpace(a.Url)).Select(a => a.Url!).ToList();
+        var attachedImage = attachedImages.FirstOrDefault();
+        var fallbackSeed = $"flow-{run.Id}-{node.Id}";
+
+        GeneratedMedia media;
+        if (previous is not null || attachedImage is not null)
+        {
+            // Edit the input: the previous step's result, else the attached reference image.
+            // The previous result (or first attachment) is image 1; every attached image follows.
+            media = await editor.EditAsync(new EditSpec(
+                previous?.MediaUrl ?? attachedImage,
+                previous?.ResultSeed ?? fallbackSeed,
+                prompt,
+                "1:1",
+                ExtraImageUrls: previous is not null ? attachedImages : attachedImages.Skip(1).ToList()));
+        }
+        else
+        {
+            // First step with nothing to edit — generate from the prompt.
+            var generation = new Generation
+            {
+                Id = run.Id,
+                Platform = Platform.Facebook,
+                Placement = Placement.Feed,
+                CreativeType = CreativeType.Image,
+                AspectRatio = "1:1",
+                Brief = new Brief { ProductName = node.Data.Title, ProductDescription = prompt, KeyBenefit = prompt },
+            };
+            media = await providers.GenerateAsync(generation, new Concept { Hook = node.Data.Title, AspectRatio = "1:1" });
+        }
+
+        if (media.IsFallback)
+            throw new InvalidOperationException("No image model could run this step.");
+
+        step.Model = media.Model;
+        step.MediaUrl = media.Url;
+        step.ResultSeed = media.ImageSeed ?? fallbackSeed;
+        return media.Provider == "mock" ? 0m : ModelCatalog.EditCostUsd;
+    }
+
+    private static List<string> DocumentUrls(FlowNode node) =>
+        [.. (node.Data.Attachments ?? []).Where(a => a.Kind is "pdf" or "text" && !string.IsNullOrWhiteSpace(a.Url)).Select(a => a.Url!)];
+
+    private static readonly Dictionary<string, (Platform Platform, Placement Placement)> ImageTargets = new()
+    {
+        ["1:1"] = (Platform.Facebook, Placement.Feed),
+        ["4:5"] = (Platform.Instagram, Placement.Feed),
+        ["9:16"] = (Platform.Instagram, Placement.Story),
+        ["2:3"] = (Platform.Pinterest, Placement.Pin),
+    };
+
+    private static readonly Dictionary<string, (Platform Platform, Placement Placement)> VideoTargets = new()
+    {
+        ["9:16"] = (Platform.Tiktok, Placement.Video),
+        ["1:1"] = (Platform.Facebook, Placement.Feed),
+        ["16:9"] = (Platform.Youtube, Placement.Video),
+    };
+
+    /// <summary>Create a real Generation for the output card and wait for it. Returns its estimated cost.</summary>
+    private async Task<decimal> RunOutputAsync(string flowName, User user, FlowRun run, FlowRunStep step, FlowNode node,
+        Dictionary<string, FlowNode> nodes, List<FlowEdge> edges)
+    {
+        var isVideo = node.Data.Mode == "video";
+        var count = Math.Clamp(node.Data.Count ?? 1, 1, isVideo ? 2 : 6);
+        var targets = isVideo ? VideoTargets : ImageTargets;
+        var (platform, placement) = targets.TryGetValue(node.Data.Ratio ?? "", out var t) ? t : targets.First().Value;
+        var creativeType = isVideo ? CreativeType.Video : CreativeType.Image;
+        if (!Taxonomy.TryValidate(platform, placement, creativeType, out var aspectRatio, out var error))
+            throw new InvalidOperationException(error);
+
+        // Everything upstream, in run order, becomes the brief.
+        var ancestors = Ancestors(node.Id, edges);
+        var upstreamPrompts = run.Steps
+            .Where(s => ancestors.Contains(s.NodeId) && nodes.TryGetValue(s.NodeId, out var n) && n.Type == "prompt")
+            .Select(s => nodes[s.NodeId].Data.Prompt!.Trim())
+            .ToList();
+        var previous = PreviousResult(run, node, nodes, edges);
+        var upstreamDocuments = run.Steps
+            .Where(s => ancestors.Contains(s.NodeId) && nodes.TryGetValue(s.NodeId, out var n) && n.Type == "prompt")
+            .SelectMany(s => DocumentUrls(nodes[s.NodeId]))
+            .Distinct().Take(DocumentReader.MaxDocuments).ToList();
+
+        BrandKit? brand = null;
+        if (!string.Equals(node.Data.BrandKitId, "none", StringComparison.OrdinalIgnoreCase))
+            brand = WithStore(store => store.FindBrandKit(run.WorkspaceId, string.IsNullOrWhiteSpace(node.Data.BrandKitId) ? "primary" : node.Data.BrandKitId!));
+
+        var lastPrompt = upstreamPrompts.LastOrDefault() ?? node.Data.Title;
+        var model = OutputModel(node) ?? ModelCatalog.Default(isVideo ? ModelKind.Video : ModelKind.Image);
+        var cost = OutputCost(node);
+        var generation = WithStore(store => store.AddGeneration(new Generation
+        {
+            Id = Ids.New("gen"),
+            UserId = user.Id,
+            WorkspaceId = run.WorkspaceId,
+            Platform = platform,
+            Placement = placement,
+            CreativeType = creativeType,
+            AspectRatio = aspectRatio,
+            Brief = new Brief
+            {
+                ProductName = string.IsNullOrWhiteSpace(flowName) ? node.Data.Title : flowName,
+                ProductDescription = string.Join("\n\n", upstreamPrompts.Select((p, i) => $"Step {i + 1}: {p}")),
+                TargetAudience = "General consumers",
+                TargetMarket = "United States",
+                Language = "English (US)",
+                Tone = string.IsNullOrWhiteSpace(brand?.Tone) ? "Bold & punchy" : brand!.Tone,
+                KeyBenefit = lastPrompt.Split('.', '!', '\n')[0].Trim(),
+                CallToAction = string.IsNullOrWhiteSpace(brand?.DefaultCta) ? "Shop now" : brand!.DefaultCta,
+                ReferenceCreativeUrl = previous?.MediaUrl,
+                DocumentUrls = upstreamDocuments,
+            },
+            ConceptCount = count,
+            Quality = ModelCatalog.IsHigh(node.Data.Quality) ? "high" : "standard",
+            Model = model.Id,
+            DurationSeconds = isVideo ? ModelCatalog.Duration(model, node.Data.DurationSeconds) : null,
+            EstimatedCostUsd = cost,
+            Brand = brand,
+            // Keep the output visually tied to the chain in mock mode.
+            ProductImageSeed = previous?.ResultSeed,
+            Status = GenerationStatus.Processing,
+            CreatedAt = DateTimeOffset.UtcNow,
+            Concepts = [],
+        }));
+        step.GenerationId = generation.Id;
+        PersistRun(run);
+
+        // Generations complete on read; poll until done (real providers can take a while).
+        var deadline = DateTimeOffset.UtcNow + TimeSpan.FromMinutes(isVideo ? 10 : 3);
+        Generation? done = null;
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            done = WithStore(store => store.GetGeneration(generation.Id, run.WorkspaceId));
+            if (done?.Status == GenerationStatus.Completed) break;
+            if (done?.Status == GenerationStatus.Failed)
+                throw new OutputFailedException(done.Error ?? "The output couldn't be generated.");
+            await Task.Delay(1000);
+        }
+        if (done?.Status != GenerationStatus.Completed)
+            throw new TimeoutException("Output generation did not complete in time.");
+
+        step.Model = done.Concepts.FirstOrDefault()?.Model;
+        step.ResultSeeds = [.. done.Concepts.Select(c => c.ImageSeed)];
+        step.ResultUrls = [.. done.Concepts.Select(c => c.MediaUrl)];
+
+        return done.EstimatedCostUsd; // corrected by the generation to what really ran
+    }
+
+    private static HashSet<string> Ancestors(string nodeId, List<FlowEdge> edges)
+    {
+        var seen = new HashSet<string>();
+        var stack = new Stack<string>([nodeId]);
+        while (stack.Count > 0)
+        {
+            var id = stack.Pop();
+            foreach (var e in edges.Where(e => e.Target == id))
+                if (seen.Add(e.Source)) stack.Push(e.Source);
+        }
+        return seen;
+    }
+}
+
+/// <summary>An output card's generation failed; the message says why (shown on the board).</summary>
+public sealed class OutputFailedException(string message) : Exception(message);

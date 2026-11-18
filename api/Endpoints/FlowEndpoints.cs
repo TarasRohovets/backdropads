@@ -1,0 +1,173 @@
+using BackdropAds.Api.Data;
+using BackdropAds.Api.Domain;
+using BackdropAds.Api.Services;
+
+namespace BackdropAds.Api.Endpoints;
+
+public static class FlowEndpoints
+{
+    private const int MaxNodes = 40;
+
+    public static IEndpointRouteBuilder MapFlowEndpoints(this IEndpointRouteBuilder app)
+    {
+        var group = app.MapGroup("/api/flows").WithTags("Flows");
+
+        group.MapGet("/", (AppStore store, IUserContext user) =>
+            Results.Ok(store.ListFlows(user.WorkspaceId)));
+
+        group.MapGet("/{id}", (string id, AppStore store, IUserContext user) =>
+            store.GetFlow(id, user.WorkspaceId) is { } flow ? Results.Ok(flow) : Results.NotFound(new { error = $"Flow '{id}' not found." }));
+
+        // New flows start blank: one prompt step connected to one output card.
+        group.MapPost("/", (CreateFlowRequest request, AppStore store, IUserContext user) =>
+        {
+            var now = DateTimeOffset.UtcNow;
+            var prompt = new FlowNode
+            {
+                Id = Ids.New("step"),
+                Type = "prompt",
+                Position = new FlowPosition { X = 0, Y = 80 },
+                Data = new FlowStepData { Kind = "prompt", Title = "Step 1", Prompt = "", Attachments = [], UsePrevious = false },
+            };
+            var output = new FlowNode
+            {
+                Id = Ids.New("out"),
+                Type = "output",
+                Position = new FlowPosition { X = 380, Y = 60 },
+                Data = new FlowStepData { Kind = "output", Title = "Output", Mode = "image", Ratio = "4:5", Count = 1, Quality = "standard", BrandKitId = "primary", Model = ModelCatalog.DefaultImageModel },
+            };
+            var flow = store.AddFlow(new Flow
+            {
+                Id = Ids.New("flow"),
+                UserId = user.UserId,
+                WorkspaceId = user.WorkspaceId,
+                Name = string.IsNullOrWhiteSpace(request.Name) ? "Untitled flow" : request.Name.Trim(),
+                Nodes = [prompt, output],
+                Edges = [new FlowEdge { Id = Ids.New("e"), Source = prompt.Id, Target = output.Id }],
+                CreatedAt = now,
+                UpdatedAt = now,
+            });
+            return Results.Created($"/api/flows/{flow.Id}", flow);
+        });
+
+        // Autosave from the board: name, cards and arrows.
+        group.MapPut("/{id}", (string id, UpdateFlowRequest request, AppStore store, IUserContext user) =>
+        {
+            var flow = store.GetFlow(id, user.WorkspaceId);
+            if (flow is null) return Results.NotFound(new { error = $"Flow '{id}' not found." });
+
+            if (request.Nodes is { Count: > MaxNodes })
+                return Results.BadRequest(new { error = $"A flow can have up to {MaxNodes} cards." });
+
+            if (!string.IsNullOrWhiteSpace(request.Name)) flow.Name = request.Name.Trim();
+            if (request.Nodes is not null)
+            {
+                foreach (var n in request.Nodes)
+                {
+                    if (n.Type is not ("prompt" or "output"))
+                        return Results.BadRequest(new { error = $"Unknown card type '{n.Type}'." });
+                    n.Data.Kind = n.Type;
+                }
+                flow.Nodes = request.Nodes;
+            }
+            if (request.Edges is not null)
+            {
+                var ids = flow.Nodes.Select(n => n.Id).ToHashSet();
+                var outputs = flow.Nodes.Where(n => n.Type == "output").Select(n => n.Id).ToHashSet();
+                // Keep only arrows between existing cards; outputs are the end of the line.
+                flow.Edges = request.Edges
+                    .Where(e => ids.Contains(e.Source) && ids.Contains(e.Target) && e.Source != e.Target && !outputs.Contains(e.Source))
+                    .GroupBy(e => (e.Source, e.Target)).Select(g => g.First())
+                    .ToList();
+            }
+            flow.UpdatedAt = DateTimeOffset.UtcNow;
+            return Results.Ok(flow);
+        });
+
+        // Copy: same cards and arrows under new ids, no results.
+        group.MapPost("/{id}/duplicate", (string id, AppStore store, IUserContext user) =>
+        {
+            var source = store.GetFlow(id, user.WorkspaceId);
+            if (source is null) return Results.NotFound(new { error = $"Flow '{id}' not found." });
+
+            var idMap = source.Nodes.ToDictionary(n => n.Id, n => Ids.New(n.Type == "output" ? "out" : "step"));
+            var now = DateTimeOffset.UtcNow;
+            var copy = store.AddFlow(new Flow
+            {
+                Id = Ids.New("flow"),
+                UserId = user.UserId,
+                WorkspaceId = user.WorkspaceId,
+                Name = $"{source.Name} (copy)",
+                Nodes = source.Nodes.Select(n => new FlowNode
+                {
+                    Id = idMap[n.Id],
+                    Type = n.Type,
+                    Position = new FlowPosition { X = n.Position.X, Y = n.Position.Y },
+                    Data = new FlowStepData
+                    {
+                        Kind = n.Data.Kind,
+                        Title = n.Data.Title,
+                        Prompt = n.Data.Prompt,
+                        Attachments = n.Data.Attachments?.Select(a => new FlowAttachment { Id = Ids.New("att"), Name = a.Name, Kind = a.Kind, Size = a.Size, Url = a.Url }).ToList(),
+                        UsePrevious = n.Data.UsePrevious,
+                        Mode = n.Data.Mode,
+                        Ratio = n.Data.Ratio,
+                        Count = n.Data.Count,
+                        Quality = n.Data.Quality,
+                        BrandKitId = n.Data.BrandKitId,
+                        Model = n.Data.Model,
+                        DurationSeconds = n.Data.DurationSeconds,
+                    },
+                }).ToList(),
+                Edges = source.Edges
+                    .Where(e => idMap.ContainsKey(e.Source) && idMap.ContainsKey(e.Target))
+                    .Select(e => new FlowEdge { Id = Ids.New("e"), Source = idMap[e.Source], Target = idMap[e.Target] })
+                    .ToList(),
+                CreatedAt = now,
+                UpdatedAt = now,
+            });
+            return Results.Created($"/api/flows/{copy.Id}", copy);
+        });
+
+        group.MapDelete("/{id}", (string id, AppStore store, IUserContext user) =>
+        {
+            var flow = store.GetFlow(id, user.WorkspaceId);
+            if (flow?.LastRun?.Status == "running")
+                return Results.Conflict(new { error = "This flow is running — wait for it to finish." });
+            return store.RemoveFlow(id, user.WorkspaceId) ? Results.NoContent() : Results.NotFound(new { error = $"Flow '{id}' not found." });
+        });
+
+        // Run: validate → one run at a time → rate limit → execute in background.
+        group.MapPost("/{id}/run", (string id, HttpContext http, AppStore store, IUserContext userContext,
+            RateLimitService limits, FlowRunner runner) =>
+        {
+            var flow = store.GetFlow(id, userContext.WorkspaceId);
+            if (flow is null) return Results.NotFound(new { error = $"Flow '{id}' not found." });
+            var user = store.GetUser(userContext.UserId);
+            if (user is null) return Results.Unauthorized();
+
+            if (flow.LastRun?.Status == "running")
+                return Results.Conflict(new { error = "This flow is already running." });
+
+            var plan = FlowRunner.Plan(flow);
+            if (plan.Error is not null) return Results.BadRequest(new { error = plan.Error });
+
+            if (!limits.TryAcquireImage(user.Id, out var retryAfter) || (plan.HasVideo && !limits.TryAcquireVideo(user.Id, out retryAfter)))
+                return Guards.TooManyRequests(http, "You've hit the generation rate limit. Take a breather.", retryAfter);
+
+            var run = runner.Start(flow, user, plan);
+            return Results.Accepted($"/api/flows/{flow.Id}/runs/{run.Id}", run);
+        });
+
+        // Poll a run (the board polls this while it animates).
+        group.MapGet("/{id}/runs/{runId}", (string id, string runId, AppStore store, IUserContext user) =>
+        {
+            var flow = store.GetFlow(id, user.WorkspaceId);
+            return flow?.LastRun?.Id == runId
+                ? Results.Ok(flow.LastRun)
+                : Results.NotFound(new { error = "Run not found." });
+        });
+
+        return app;
+    }
+}
