@@ -1,4 +1,11 @@
-# BackdropAds
+<h1 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/backdropads-logo-on-dark.svg">
+    <img src="docs/brand/backdropads-logo-on-light.svg" alt="BackdropAds" width="380">
+  </picture>
+</h1>
+
+<p align="center"><b>The open ad studio.</b> Pick the model, see the cost, own your setup.</p>
 
 [![License: AGPL v3](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
 ![Self-hosted](https://img.shields.io/badge/self--hosted-Docker-2496ED)

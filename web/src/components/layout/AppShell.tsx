@@ -1,5 +1,6 @@
 "use client";
 
+import { BrandMark } from "@/components/shared/BrandMark";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ANALYZE_ENABLED } from "@/lib/features";
@@ -70,9 +71,7 @@ function isActive(pathname: string, href: string) {
 function Logo() {
   return (
     <Link href="/dashboard" className="flex items-center gap-2.5 px-2">
-      <span className="relative flex h-8 w-8 items-center justify-center rounded-xl bg-neon">
-        <Sparkles className="h-4 w-4 text-[#08070F]" />
-      </span>
+      <BrandMark className="h-8 w-8 shrink-0" />
       <span className="font-display text-lg font-bold tracking-tight text-foreground">
         BackdropAds
       </span>
