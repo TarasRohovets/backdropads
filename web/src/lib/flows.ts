@@ -240,3 +240,35 @@ export function estimateCost(nodes: FlowNode[], catalog: Catalog = DEFAULT_CATAL
     return sum + modelUnitCost(model, d.quality, snapDuration(model, d.durationSeconds)) * d.count;
   }, 0);
 }
+
+// ---- flows as files ----------------------------------------------------------------------
+
+/** What "Export" writes and "Import" reads. Steps, prompts and output settings only: no photos, no results. */
+export interface FlowFile {
+  format: "backdropads-flow";
+  version: 1;
+  name: string;
+  nodes: FlowNode[];
+  edges: FlowEdge[];
+}
+
+export const toFlowFile = (flow: FlowDoc): FlowFile => ({
+  format: "backdropads-flow",
+  version: 1,
+  name: flow.name,
+  nodes: flow.nodes.map((n) => ({ ...n, data: n.type === "prompt" ? { ...n.data, attachments: [] } : n.data }) as FlowNode),
+  edges: flow.edges,
+});
+
+/** Saves the flow as a .json file through the browser. */
+export function downloadFlow(flow: FlowDoc) {
+  const blob = new Blob([JSON.stringify(toFlowFile(flow), null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${flow.name.replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "").toLowerCase() || "flow"}.backdropads-flow.json`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}

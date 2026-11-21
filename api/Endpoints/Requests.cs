@@ -118,6 +118,16 @@ public class CreateFlowRequest
     public string? TemplateId { get; set; }
 }
 
+/// <summary>A flow file made by "Export" (steps, prompts and output settings; no photos or results).</summary>
+public class ImportFlowRequest
+{
+    public string? Format { get; set; }
+    public int? Version { get; set; }
+    public string? Name { get; set; }
+    public List<FlowNode>? Nodes { get; set; }
+    public List<FlowEdge>? Edges { get; set; }
+}
+
 /// <summary>Run a flow once per photo (links from the upload library), one after another.</summary>
 public class RunFlowBatchRequest
 {

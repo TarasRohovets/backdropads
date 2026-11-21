@@ -1,13 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
 import { toast } from "sonner";
-import { ArrowRight, Clapperboard, Copy, Image as ImageIcon, Loader2, MoreHorizontal, Plus, Trash2, Workflow } from "lucide-react";
-import type { FlowDoc, FlowTemplate } from "@/lib/flows";
+import { ArrowRight, Clapperboard, Copy, Image as ImageIcon, Loader2, MoreHorizontal, Plus, Trash2, Workflow, Download, Upload } from "lucide-react";
+import { downloadFlow, type FlowDoc, type FlowFile, type FlowTemplate } from "@/lib/flows";
 import { FlowsApi } from "@/api/flows.api";
 import { apiError } from "@/api/client";
 import { cn } from "@/lib/utils";
@@ -84,6 +84,43 @@ export default function FlowsPage() {
     onError: (err) => toast.error(apiError(err).message),
   });
 
+  // Import a flow file (made by Export, here or in another install).
+  const fileInput = useRef<HTMLInputElement>(null);
+  const importFlow = useMutation({
+    mutationFn: async (file: File) => {
+      let parsed: FlowFile;
+      try {
+        parsed = JSON.parse(await file.text());
+      } catch {
+        throw new Error("This file is not a BackdropAds flow.");
+      }
+      return FlowsApi.importFile(parsed);
+    },
+    onSuccess: (flow) => {
+      qc.invalidateQueries({ queryKey: ["flows"] });
+      toast.success(`Imported "${flow.name}"`);
+      router.push(`/flows/${flow.id}`);
+    },
+    onError: (err) => toast.error(err instanceof Error && !("response" in err) ? err.message : apiError(err).message),
+  });
+
+  // Quick start: /flows?template=product-hero makes that flow and opens it with the photo picker ready.
+  const started = useRef(false);
+  useEffect(() => {
+    const template = new URLSearchParams(window.location.search).get("template");
+    if (!template || started.current) return;
+    started.current = true;
+    FlowsApi.create("", template)
+      .then((flow) => {
+        qc.invalidateQueries({ queryKey: ["flows"] });
+        router.replace(`/flows/${flow.id}?photos=1`);
+      })
+      .catch((err) => {
+        toast.error(apiError(err).message);
+        router.replace("/flows");
+      });
+  }, [qc, router]);
+
   const openNew = () => {
     setName("");
     setTemplateId("blank");
@@ -102,9 +139,25 @@ export default function FlowsPage() {
             Chain prompts into a pipeline — rebrand, stage, refine — and end with the images or videos you need. Run it on one photo, or on up to 10 at a time.
           </p>
         </div>
-        <Button onClick={openNew}>
-          <Plus className="h-4 w-4" /> New flow
-        </Button>
+        <div className="flex items-center gap-2">
+          <input
+            ref={fileInput}
+            type="file"
+            accept=".json,application/json"
+            hidden
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) importFlow.mutate(file);
+              e.target.value = "";
+            }}
+          />
+          <Button variant="outline" onClick={() => fileInput.current?.click()} disabled={importFlow.isPending}>
+            {importFlow.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} Import
+          </Button>
+          <Button onClick={openNew}>
+            <Plus className="h-4 w-4" /> New flow
+          </Button>
+        </div>
       </div>
 
       {flows.isLoading ? (
@@ -176,6 +229,9 @@ export default function FlowsPage() {
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-40">
+                    <DropdownMenuItem onClick={() => downloadFlow(f)}>
+                      <Download className="mr-2 h-4 w-4" /> Export
+                    </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => copy.mutate(f.id)}>
                       <Copy className="mr-2 h-4 w-4" /> Copy flow
                     </DropdownMenuItem>

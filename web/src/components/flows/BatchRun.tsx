@@ -24,6 +24,7 @@ export function BatchRunButton({
   disabled,
   beforeStart,
   onStarted,
+  openOnArrival,
 }: {
   flowId: string;
   /** estimated provider cost of one run of the flow, in USD */
@@ -32,10 +33,12 @@ export function BatchRunButton({
   /** save the board first, so the batch runs exactly what is on screen */
   beforeStart: () => Promise<void>;
   onStarted: (batch: FlowBatch) => void;
+  /** open the photo picker right away (the flow was just made from a ready-made style) */
+  openOnArrival?: boolean;
 }) {
   const qc = useQueryClient();
   const fileInput = useRef<HTMLInputElement>(null);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(!!openOnArrival);
   const [picked, setPicked] = useState<string[]>([]);
   const [starting, setStarting] = useState(false);
   const [uploading, setUploading] = useState(false);

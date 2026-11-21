@@ -5,19 +5,19 @@
   </picture>
 </h1>
 
-<p align="center"><b>Build an ad once. Run it for every product.</b> Open-source ad flows on your own AI keys.</p>
+<p align="center"><b>Turn product photos into ads in minutes.</b> Open source, on your own AI keys.</p>
 
 [![License: AGPL v3](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
 ![Self-hosted](https://img.shields.io/badge/self--hosted-Docker-2496ED)
 ![Next.js](https://img.shields.io/badge/web-Next.js%2015-black)
 ![.NET](https://img.shields.io/badge/api-.NET%209-512BD4)
 
-**Chain plain-text steps into a flow, then run it on up to 10 photos at a time.** Stage the product, add the
-headline, pick the format: every photo comes out as a finished image or video ad, sized for Instagram, Facebook,
-TikTok, YouTube, Pinterest and Google Display.
+**Upload up to 10 photos, pick an ad style, and get a finished image or video ad for each one.** Ads come out
+sized for Instagram, Facebook, TikTok, YouTube, Pinterest and Google Display.
 
-Use it for a product, an app, a service, an event or a client's brand. Pick the AI model for each flow, see what
-it will cost before it runs, and download the results.
+An ad style is a flow: a few steps written as plain sentences ("clean backdrop", then "add a headline"). Use a
+ready-made one or write your own, pick the AI model, see what it will cost before it runs, and download the
+results.
 
 BackdropAds is open source and you host it yourself. You plug in your own Google or OpenAI key and pay them
 directly: about $0.03 for an image with Nano Banana, about $0.70 for a 10-second video with Gemini Omni.
@@ -33,6 +33,8 @@ This repository is the whole app. One command starts it. There is no account to 
   pipeline that ends in images or videos. Start from one of the starter flows or from a blank one.
 - **Run on photos.** Pick up to 10 photos and the flow runs once for each, one after another. One flow, a whole
   set of ads.
+- **Share flows as files.** Export a flow and import it somewhere else. A file carries the steps and settings,
+  never your photos.
 - **Start from anything.** A prompt, a photo, several photos, or a link to a page. Refer to photos in the
   prompt: "put the serum from image 1 next to the cream from image 2".
 - **Sized for every platform.** Pick the platform and placement (feed, story, reel, short, pin, display) and

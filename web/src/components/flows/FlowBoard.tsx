@@ -108,6 +108,8 @@ function Board({ flow }: { flow: FlowDoc }) {
   const [run, setRun] = useState<FlowRun | null>(flow.lastRun ?? null);
   const [batch, setBatch] = useState<FlowBatch | null>(flow.lastBatch ?? null);
   const batchRunning = batch?.status === "running";
+  // Arrived from a ready-made style (?photos=1): the photo picker opens straight away.
+  const [pickPhotos] = useState(() => typeof window !== "undefined" && new URLSearchParams(window.location.search).get("photos") === "1");
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [copying, setCopying] = useState(false);
   const running = run?.status === "running";
@@ -371,6 +373,7 @@ function Board({ flow }: { flow: FlowDoc }) {
               disabled={running || batchRunning}
               beforeStart={save}
               onStarted={setBatch}
+              openOnArrival={pickPhotos}
             />
             <Button size="sm" onClick={startRun} disabled={running || batchRunning} className="h-9 px-4">
               {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4 fill-current" />}

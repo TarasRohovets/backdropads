@@ -1,5 +1,5 @@
 import { api } from "./client";
-import type { FlowBatch, FlowDoc, FlowEdge, FlowNode, FlowRun, FlowTemplate } from "@/lib/flows";
+import type { FlowBatch, FlowDoc, FlowEdge, FlowNode, FlowRun, FlowTemplate, FlowFile } from "@/lib/flows";
 
 export const FlowsApi = {
   list: async (): Promise<FlowDoc[]> => {
@@ -18,6 +18,11 @@ export const FlowsApi = {
   /** New flows start blank (one prompt step → one output card) or from a starter flow. */
   create: async (name?: string, templateId?: string): Promise<FlowDoc> => {
     const res = await api.post<FlowDoc>("/flows", { name: name || null, templateId: templateId || null });
+    return res.data;
+  },
+  /** Creates a flow from a file made by "Export". */
+  importFile: async (file: FlowFile): Promise<FlowDoc> => {
+    const res = await api.post<FlowDoc>("/flows/import", file);
     return res.data;
   },
   update: async (id: string, body: { name?: string; nodes?: FlowNode[]; edges?: FlowEdge[] }): Promise<FlowDoc> => {

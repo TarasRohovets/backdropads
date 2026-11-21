@@ -29,6 +29,27 @@ public static class FlowEndpoints
             steps = t.Steps.Select(s => s.Title),
         })));
 
+        // Import a flow file made by "Export". Everything is re-checked and gets fresh ids; photos never travel.
+        group.MapPost("/import", (ImportFlowRequest request, AppStore store, IUserContext user) =>
+        {
+            var (imported, error) = FlowFiles.Read(request.Format, request.Name, request.Nodes, request.Edges);
+            if (imported is null) return Results.BadRequest(new { error });
+
+            var now = DateTimeOffset.UtcNow;
+            var flow = store.AddFlow(new Flow
+            {
+                Id = Ids.New("flow"),
+                UserId = user.UserId,
+                WorkspaceId = user.WorkspaceId,
+                Name = imported.Name,
+                Nodes = imported.Nodes,
+                Edges = imported.Edges,
+                CreatedAt = now,
+                UpdatedAt = now,
+            });
+            return Results.Created($"/api/flows/{flow.Id}", flow);
+        });
+
         // New flows start blank (one prompt step connected to one output card) or from a starter flow.
         group.MapPost("/", (CreateFlowRequest request, AppStore store, IUserContext user) =>
         {

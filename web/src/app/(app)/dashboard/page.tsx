@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { ArrowRight, LibraryBig, Link2, Workflow } from "lucide-react";
 import { RecentCreations } from "@/components/shared/RecentCreations";
 import { PromptComposer } from "@/components/create/PromptComposer";
+import { StarterStyles } from "@/components/flows/StarterStyles";
 import { Button } from "@/components/ui/button";
 
 const fadeUp = {
@@ -13,7 +14,7 @@ const fadeUp = {
 };
 
 const QUICK_STARTS = [
-  { href: "/create", label: "From a product link", blurb: "Shopify or any store", icon: Link2 },
+  { href: "/create", label: "From a product link", blurb: "Any product page", icon: Link2 },
   { href: "/flows", label: "Build a flow", blurb: "Reuse it for every product", icon: Workflow },
   { href: "/templates", label: "From a template", blurb: "Proven ad structures", icon: LibraryBig },
 ];
@@ -28,7 +29,7 @@ export default function DashboardPage() {
           What are we <span className="text-neon">selling today?</span>
         </h1>
         <p className="mt-3 text-sm text-muted-foreground sm:text-base">
-          Describe your product or attach a photo — ready-to-run ads in about a minute.
+          Describe your product or attach a photo and get a ready-to-post ad.
         </p>
       </motion.div>
 
@@ -62,6 +63,8 @@ export default function DashboardPage() {
           );
         })}
       </motion.div>
+
+      <StarterStyles />
 
       {/* Recent creations */}
       <section className="mt-16 pb-6">
