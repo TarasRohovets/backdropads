@@ -7,7 +7,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
 import { toast } from "sonner";
 import { ArrowRight, Clapperboard, Copy, Image as ImageIcon, Loader2, MoreHorizontal, Plus, Trash2, Workflow } from "lucide-react";
-import type { FlowDoc } from "@/lib/flows";
+import type { FlowDoc, FlowTemplate } from "@/lib/flows";
 import { FlowsApi } from "@/api/flows.api";
 import { apiError } from "@/api/client";
 import { cn } from "@/lib/utils";
@@ -53,9 +53,11 @@ export default function FlowsPage() {
   const flows = useQuery({ queryKey: ["flows"], queryFn: () => FlowsApi.list() });
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
+  const [templateId, setTemplateId] = useState("blank");
+  const templates = useQuery({ queryKey: ["flow-templates"], queryFn: () => FlowsApi.templates(), enabled: open, staleTime: Infinity });
 
   const create = useMutation({
-    mutationFn: () => FlowsApi.create(name.trim()),
+    mutationFn: () => FlowsApi.create(name.trim(), templateId),
     onSuccess: (flow) => {
       qc.invalidateQueries({ queryKey: ["flows"] });
       setOpen(false); // close right away; the board opens next
@@ -84,6 +86,7 @@ export default function FlowsPage() {
 
   const openNew = () => {
     setName("");
+    setTemplateId("blank");
     setOpen(true);
   };
 
@@ -96,7 +99,7 @@ export default function FlowsPage() {
             <span className="text-neon">Flows</span>
           </h1>
           <p className="mt-2 max-w-md text-sm text-muted-foreground">
-            Chain prompts into a pipeline — rebrand, stage, refine — and end with the images or videos you need. Re-run it any time.
+            Chain prompts into a pipeline — rebrand, stage, refine — and end with the images or videos you need. Run it on one photo, or on up to 10 at a time.
           </p>
         </div>
         <Button onClick={openNew}>
@@ -189,10 +192,10 @@ export default function FlowsPage() {
       )}
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-xl">
           <DialogHeader>
             <DialogTitle className="font-display">New flow</DialogTitle>
-            <DialogDescription>Starts with one prompt and one output — add steps from there.</DialogDescription>
+            <DialogDescription>Start from a ready-made flow or a blank one. You can change every step afterwards.</DialogDescription>
           </DialogHeader>
           <form
             className="space-y-4"
@@ -201,9 +204,38 @@ export default function FlowsPage() {
               create.mutate();
             }}
           >
+            <div className="grid max-h-72 grid-cols-1 gap-2 overflow-y-auto pr-0.5 sm:grid-cols-2">
+              {(templates.data ?? []).map((t: FlowTemplate) => {
+                const on = t.id === templateId;
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() => setTemplateId(t.id)}
+                    className={cn(
+                      "rounded-xl border p-3 text-left transition",
+                      on ? "border-primary bg-primary/5" : "border-border hover:border-muted-foreground/40"
+                    )}
+                  >
+                    <p className="flex items-center gap-1.5 text-sm font-semibold">
+                      {t.mode === "video" ? <Clapperboard className="h-3.5 w-3.5 text-iris" /> : <ImageIcon className="h-3.5 w-3.5 text-iris" />}
+                      {t.name}
+                    </p>
+                    <p className="mt-1 text-xs leading-snug text-muted-foreground">{t.description}</p>
+                    {t.id !== "blank" && (
+                      <p className="mt-2 truncate font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
+                        {t.steps.join(" → ")} → {t.mode} {t.ratio}
+                      </p>
+                    )}
+                  </button>
+                );
+              })}
+              {templates.isLoading && <p className="col-span-full py-6 text-center text-xs text-muted-foreground">Loading starter flows…</p>}
+            </div>
             <div>
               <Label htmlFor="flowName">Name</Label>
-              <Input id="flowName" autoFocus className="mt-1.5" placeholder="e.g. Summer serum launch" value={name} onChange={(e) => setName(e.target.value)} />
+              <Input id="flowName" className="mt-1.5" placeholder="e.g. Summer serum launch" value={name} onChange={(e) => setName(e.target.value)} />
             </div>
             <Button type="submit" className="w-full" size="lg" disabled={create.isPending}>
               {create.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}

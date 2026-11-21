@@ -24,6 +24,9 @@ public class Flow
 
     /// <summary>Most recent run (results per step); null until the flow is run.</summary>
     public FlowRun? LastRun { get; set; }
+
+    /// <summary>Most recent run on several photos (one run per photo, queued); null until used.</summary>
+    public FlowBatch? LastBatch { get; set; }
 }
 
 public class FlowNode
@@ -118,4 +121,29 @@ public class FlowRunStep
     public string? GenerationId { get; set; }
     public List<string> ResultSeeds { get; set; } = [];
     public List<string?> ResultUrls { get; set; } = [];
+}
+
+/// <summary>The same flow run once for each input photo, one after another. Polled by the board.</summary>
+public class FlowBatch
+{
+    public string Id { get; set; } = "";
+    public string FlowId { get; set; } = "";
+    /// <summary>"running" | "completed" | "failed" (failed = no photo produced a result)</summary>
+    public string Status { get; set; } = "running";
+    /// <summary>Estimated provider cost of all photos in USD: the quote while running, what really ran once finished.</summary>
+    public decimal EstimatedCostUsd { get; set; }
+    public DateTimeOffset StartedAt { get; set; }
+    public DateTimeOffset? FinishedAt { get; set; }
+    public List<FlowBatchItem> Items { get; set; } = [];
+}
+
+public class FlowBatchItem
+{
+    /// <summary>The photo this run starts from (replaces the first step's photo).</summary>
+    public string InputUrl { get; set; } = "";
+    /// <summary>"queued" | "running" | "done" | "failed"</summary>
+    public string Status { get; set; } = "queued";
+    public string? Error { get; set; }
+    /// <summary>The run for this photo; null while it is still queued.</summary>
+    public FlowRun? Run { get; set; }
 }

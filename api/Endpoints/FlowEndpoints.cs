@@ -18,32 +18,38 @@ public static class FlowEndpoints
         group.MapGet("/{id}", (string id, AppStore store, IUserContext user) =>
             store.GetFlow(id, user.WorkspaceId) is { } flow ? Results.Ok(flow) : Results.NotFound(new { error = $"Flow '{id}' not found." }));
 
-        // New flows start blank: one prompt step connected to one output card.
+        // Starter flows a new flow can begin from.
+        group.MapGet("/templates", () => Results.Ok(FlowTemplates.All.Select(t => new
+        {
+            t.Id,
+            t.Name,
+            t.Description,
+            t.Mode,
+            t.Ratio,
+            steps = t.Steps.Select(s => s.Title),
+        })));
+
+        // New flows start blank (one prompt step connected to one output card) or from a starter flow.
         group.MapPost("/", (CreateFlowRequest request, AppStore store, IUserContext user) =>
         {
+            var template = FlowTemplates.Blank;
+            if (!string.IsNullOrWhiteSpace(request.TemplateId))
+            {
+                if (FlowTemplates.Find(request.TemplateId) is not { } found)
+                    return Results.BadRequest(new { error = $"Unknown starter flow '{request.TemplateId}'." });
+                template = found;
+            }
+
             var now = DateTimeOffset.UtcNow;
-            var prompt = new FlowNode
-            {
-                Id = Ids.New("step"),
-                Type = "prompt",
-                Position = new FlowPosition { X = 0, Y = 80 },
-                Data = new FlowStepData { Kind = "prompt", Title = "Step 1", Prompt = "", Attachments = [], UsePrevious = false },
-            };
-            var output = new FlowNode
-            {
-                Id = Ids.New("out"),
-                Type = "output",
-                Position = new FlowPosition { X = 380, Y = 60 },
-                Data = new FlowStepData { Kind = "output", Title = "Output", Mode = "image", Ratio = "4:5", Count = 1, Quality = "standard", BrandKitId = "primary", Model = ModelCatalog.DefaultImageModel },
-            };
+            var (nodes, edges) = FlowTemplates.Build(template);
             var flow = store.AddFlow(new Flow
             {
                 Id = Ids.New("flow"),
                 UserId = user.UserId,
                 WorkspaceId = user.WorkspaceId,
-                Name = string.IsNullOrWhiteSpace(request.Name) ? "Untitled flow" : request.Name.Trim(),
-                Nodes = [prompt, output],
-                Edges = [new FlowEdge { Id = Ids.New("e"), Source = prompt.Id, Target = output.Id }],
+                Name = !string.IsNullOrWhiteSpace(request.Name) ? request.Name.Trim() : template == FlowTemplates.Blank ? "Untitled flow" : template.Name,
+                Nodes = nodes,
+                Edges = edges,
                 CreatedAt = now,
                 UpdatedAt = now,
             });
@@ -146,7 +152,7 @@ public static class FlowEndpoints
             var user = store.GetUser(userContext.UserId);
             if (user is null) return Results.Unauthorized();
 
-            if (flow.LastRun?.Status == "running")
+            if (flow.LastRun?.Status == "running" || FlowRunner.IsRunning(flow.LastBatch))
                 return Results.Conflict(new { error = "This flow is already running." });
 
             var plan = FlowRunner.Plan(flow);
@@ -157,6 +163,45 @@ public static class FlowEndpoints
 
             var run = runner.Start(flow, user, plan);
             return Results.Accepted($"/api/flows/{flow.Id}/runs/{run.Id}", run);
+        });
+
+        // Run on several photos: the same flow once per photo, queued one after another (max 10).
+        group.MapPost("/{id}/run-batch", (string id, RunFlowBatchRequest request, HttpContext http, AppStore store,
+            IUserContext userContext, RateLimitService limits, MediaStore media, FlowRunner runner) =>
+        {
+            var flow = store.GetFlow(id, userContext.WorkspaceId);
+            if (flow is null) return Results.NotFound(new { error = $"Flow '{id}' not found." });
+            var user = store.GetUser(userContext.UserId);
+            if (user is null) return Results.Unauthorized();
+
+            var inputs = (request.InputUrls ?? []).Where(u => !string.IsNullOrWhiteSpace(u)).Select(u => u.Trim()).Distinct().ToList();
+            if (inputs.Count == 0) return Results.BadRequest(new { error = "Pick at least one photo." });
+            if (inputs.Count > FlowRunner.MaxBatchInputs)
+                return Results.BadRequest(new { error = $"Pick up to {FlowRunner.MaxBatchInputs} photos at a time." });
+            if (inputs.Any(u => !media.IsOwn(u)))
+                return Results.BadRequest(new { error = "Pick photos from your upload library." });
+
+            if (flow.LastRun?.Status == "running" || FlowRunner.IsRunning(flow.LastBatch))
+                return Results.Conflict(new { error = "This flow is already running." });
+
+            var plan = FlowRunner.Plan(flow);
+            if (plan.Error is not null) return Results.BadRequest(new { error = plan.Error });
+            if (FlowRunner.EntrySteps(flow).Count == 0)
+                return Results.BadRequest(new { error = "Add a step first: each photo goes into the flow's first step." });
+
+            if (!limits.TryAcquireImage(user.Id, out var retryAfter) || (plan.HasVideo && !limits.TryAcquireVideo(user.Id, out retryAfter)))
+                return Guards.TooManyRequests(http, "You've hit the generation rate limit. Take a breather.", retryAfter);
+
+            var batch = runner.StartBatch(flow, user, plan, inputs);
+            return Results.Accepted($"/api/flows/{flow.Id}/batch", batch);
+        });
+
+        // Poll the batch (progress per photo).
+        group.MapGet("/{id}/batch", (string id, AppStore store, IUserContext user) =>
+        {
+            var flow = store.GetFlow(id, user.WorkspaceId);
+            if (flow is null) return Results.NotFound(new { error = $"Flow '{id}' not found." });
+            return flow.LastBatch is null ? Results.NoContent() : Results.Ok(flow.LastBatch);
         });
 
         // Poll a run (the board polls this while it animates).

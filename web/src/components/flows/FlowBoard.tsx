@@ -36,6 +36,7 @@ import {
   uid,
   type FlowDoc,
   type FlowNode,
+  type FlowBatch,
   type FlowRun,
   type OutputStepData,
   type PromptStepData,
@@ -46,6 +47,7 @@ import { usd } from "@/lib/catalog";
 import { apiError } from "@/api/client";
 import { FlowActions, nodeTypes } from "./FlowNodes";
 import { FlowInspector } from "./FlowInspector";
+import { BatchPanel, BatchRunButton } from "./BatchRun";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -104,6 +106,8 @@ function Board({ flow }: { flow: FlowDoc }) {
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(flow.edges.map((e) => ({ ...e, ...edgeDefaults })));
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [run, setRun] = useState<FlowRun | null>(flow.lastRun ?? null);
+  const [batch, setBatch] = useState<FlowBatch | null>(flow.lastBatch ?? null);
+  const batchRunning = batch?.status === "running";
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [copying, setCopying] = useState(false);
   const running = run?.status === "running";
@@ -361,7 +365,14 @@ function Board({ flow }: { flow: FlowDoc }) {
                 <RotateCcw className="h-4 w-4" /> Clear results
               </Button>
             )}
-            <Button size="sm" onClick={startRun} disabled={running} className="h-9 px-4">
+            <BatchRunButton
+              flowId={flow.id}
+              costPerPhoto={cost}
+              disabled={running || batchRunning}
+              beforeStart={save}
+              onStarted={setBatch}
+            />
+            <Button size="sm" onClick={startRun} disabled={running || batchRunning} className="h-9 px-4">
               {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4 fill-current" />}
               {running ? "Running…" : "Run flow"}
               {!running && (
@@ -375,6 +386,7 @@ function Board({ flow }: { flow: FlowDoc }) {
 
         {/* Canvas */}
         <div className="relative flex-1">
+          {batch && <BatchPanel flowId={flow.id} batch={batch} onChange={setBatch} />}
           <ReactFlow
             nodes={nodes}
             edges={edges}

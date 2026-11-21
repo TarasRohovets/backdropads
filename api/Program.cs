@@ -108,6 +108,7 @@ builder.Services.AddSingleton<IVideoModelProvider, GeminiOmniProvider>();
 builder.Services.AddSingleton<IVideoModelProvider, KlingProvider>();
 builder.Services.AddSingleton<IVideoModelProvider, WanProvider>();
 builder.Services.AddSingleton<IVideoModelProvider, MockVideoProvider>();
+builder.Services.AddSingleton<AiGate>();
 builder.Services.AddSingleton<ProviderRouter>();
 
 // Refine loop: image edits walk their own chain (Banana first, it is the stronger editor).

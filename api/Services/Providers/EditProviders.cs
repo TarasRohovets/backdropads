@@ -249,6 +249,7 @@ public class MockEditProvider : IImageEditProvider
 /// <summary>Walks AI:ImageEditProviderChain (default nano-banana, then gpt-image-sunburst, then mock).</summary>
 public class ImageEditRouter(
     IEnumerable<IImageEditProvider> providers,
+    AiGate gate,
     IConfiguration configuration,
     ILogger<ImageEditRouter> logger)
 {
@@ -260,6 +261,8 @@ public class ImageEditRouter(
         if (configuration.GetValue("AI:UseMockData", true))
             return await mock.EditAsync(spec, cancellationToken);
 
+        // Queue: edits share the image slots (TryRealAsync itself is not gated — generations call it inside their own slot).
+        using var slot = await gate.EnterAsync(isVideo: false, cancellationToken);
         if (await TryRealAsync(spec, cancellationToken) is { } real) return real;
         var placeholder = await mock.EditAsync(spec, cancellationToken);
         placeholder.IsFallback = true; // live mode, no edit model could run — callers report it

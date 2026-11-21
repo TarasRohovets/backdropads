@@ -114,6 +114,14 @@ public class ImportProductRequest
 public class CreateFlowRequest
 {
     public string? Name { get; set; }
+    /// <summary>A starter flow to begin from (GET /api/flows/templates); blank when omitted.</summary>
+    public string? TemplateId { get; set; }
+}
+
+/// <summary>Run a flow once per photo (links from the upload library), one after another.</summary>
+public class RunFlowBatchRequest
+{
+    public List<string> InputUrls { get; set; } = [];
 }
 
 public class UpdateFlowRequest

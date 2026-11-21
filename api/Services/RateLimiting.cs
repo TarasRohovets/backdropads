@@ -17,6 +17,10 @@ public class RateLimitOptions
     public int RoastPerDay { get; set; } = 40;
     public int MaxConcurrentImageGenerations { get; set; } = 2;
     public int MaxConcurrentVideoGenerations { get; set; } = 1;
+    /// <summary>Image jobs talking to an AI provider at the same time. The rest queue.</summary>
+    public int GlobalConcurrentImageJobs { get; set; } = 2;
+    /// <summary>Video jobs running at the same time. The rest queue.</summary>
+    public int GlobalConcurrentVideoJobs { get; set; } = 1;
 }
 
 /// <summary>

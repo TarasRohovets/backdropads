@@ -5,19 +5,19 @@
   </picture>
 </h1>
 
-<p align="center"><b>The open ad studio.</b> Pick the model, see the cost, own your setup.</p>
+<p align="center"><b>Build an ad once. Run it for every product.</b> Open-source ad flows on your own AI keys.</p>
 
 [![License: AGPL v3](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
 ![Self-hosted](https://img.shields.io/badge/self--hosted-Docker-2496ED)
 ![Next.js](https://img.shields.io/badge/web-Next.js%2015-black)
 ![.NET](https://img.shields.io/badge/api-.NET%209-512BD4)
 
-**AI ads for anything you promote, at the price the AI providers charge.** Describe the ad, start from a photo
-or paste a link, and get image and video ads sized for Instagram, Facebook, TikTok, YouTube, Pinterest and
-Google Display.
+**Chain plain-text steps into a flow, then run it on up to 10 photos at a time.** Stage the product, add the
+headline, pick the format: every photo comes out as a finished image or video ad, sized for Instagram, Facebook,
+TikTok, YouTube, Pinterest and Google Display.
 
-Use it for a product, an app, a service, an event or a client's brand. Download the result and run it wherever
-you advertise.
+Use it for a product, an app, a service, an event or a client's brand. Pick the AI model for each flow, see what
+it will cost before it runs, and download the results.
 
 BackdropAds is open source and you host it yourself. You plug in your own Google or OpenAI key and pay them
 directly: about $0.03 for an image with Nano Banana, about $0.70 for a 10-second video with Gemini Omni.
@@ -29,6 +29,10 @@ This repository is the whole app. One command starts it. There is no account to 
 
 ## Features
 
+- **Flows.** Chain steps written as plain sentences (clean backdrop, then headline, then format) into a
+  pipeline that ends in images or videos. Start from one of the starter flows or from a blank one.
+- **Run on photos.** Pick up to 10 photos and the flow runs once for each, one after another. One flow, a whole
+  set of ads.
 - **Start from anything.** A prompt, a photo, several photos, or a link to a page. Refer to photos in the
   prompt: "put the serum from image 1 next to the cream from image 2".
 - **Sized for every platform.** Pick the platform and placement (feed, story, reel, short, pin, display) and
@@ -36,17 +40,17 @@ This repository is the whole app. One command starts it. There is no account to 
 - **Pick the model.** Nano Banana, GPT Image, Gemini Omni, Seedance, Kling, FLUX and more, each with its
   estimated cost shown before you generate.
 - **No silent swaps.** If the model you picked isn't responding, you're offered a working one. You choose.
-- **Flows.** Chain prompts into a pipeline (rebrand, stage, refine) that ends in images or videos. Re-run it
-  for the next campaign.
 - **Upload library.** Every photo, PDF and text file you upload stays available for the next ad. PDFs and text
   are read by an LLM first, so only the relevant facts reach the image or video prompt.
 - **Refine with a sentence.** "Make the background darker." Every version is kept.
 - **Brand kits and workspaces.** One workspace per brand, project or client, each with its own colors, voice and ads.
 - **Know what you spend.** Usage and estimated cost for the last 7 and 30 days, per model.
+- **Easy on a small machine.** AI jobs go through a queue (2 images and 1 video at a time by default), so a
+  batch never starts everything at once.
 - **Models that stay current.** Providers retire models all the time. A weekly check tells you when one is gone,
   and one button (**Update models**) moves every model to its provider's newest version.
 
-| Every model shows its cost | Flows chain prompts into a pipeline |
+| Every model shows its cost | A flow: steps in, ads out |
 |---|---|
 | ![Model picker with the estimated cost per image](docs/screenshots/models.png) | ![A three-step flow that ends in an image](docs/screenshots/flow.png) |
 

@@ -98,6 +98,41 @@ export interface FlowDoc {
   createdAt: string;
   updatedAt: string;
   lastRun?: FlowRun | null;
+  lastBatch?: FlowBatch | null;
+}
+
+/** A starter flow a new flow can begin from. */
+export interface FlowTemplate {
+  id: string;
+  name: string;
+  description: string;
+  mode: "image" | "video";
+  ratio: string;
+  /** step titles, in order */
+  steps: string[];
+}
+
+/** How many photos one "Run on photos" may take (the API enforces the same number). */
+export const MAX_BATCH_PHOTOS = 10;
+
+/** One photo of a batch and the run it produced. */
+export interface FlowBatchItem {
+  inputUrl: string;
+  status: "queued" | "running" | "done" | "failed";
+  error?: string | null;
+  run?: FlowRun | null;
+}
+
+/** The same flow run once per photo, one after another. */
+export interface FlowBatch {
+  id: string;
+  flowId: string;
+  status: "running" | "completed" | "failed";
+  /** estimated provider cost in USD */
+  estimatedCostUsd: number;
+  startedAt: string;
+  finishedAt?: string | null;
+  items: FlowBatchItem[];
 }
 
 // ---- factories -----------------------------------------------------------------------

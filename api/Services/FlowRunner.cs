@@ -138,8 +138,9 @@ public class FlowRunner(
     private bool MockPacing => configuration.GetValue("AI:UseMockData", true);
 
     private async Task ExecuteAsync(string flowName, User user, FlowRun run, Dictionary<string, FlowNode> nodes,
-        List<FlowEdge> edges)
+        List<FlowEdge> edges, Action? persist = null)
     {
+        var save = persist ?? (() => PersistRun(run)); // a batch saves the run inside its own record instead
         var spent = 0m; // what really ran, at list prices
         try
         {
@@ -147,7 +148,7 @@ public class FlowRunner(
             {
                 if (!nodes.TryGetValue(step.NodeId, out var node)) { step.Status = "done"; continue; }
                 step.Status = "running";
-                PersistRun(run);
+                save();
 
                 if (node.Type == "prompt")
                 {
@@ -156,7 +157,7 @@ public class FlowRunner(
                 }
                 else
                 {
-                    spent += await RunOutputAsync(flowName, user, run, step, node, nodes, edges);
+                    spent += await RunOutputAsync(flowName, user, run, step, node, nodes, edges, save);
                 }
 
                 step.Status = "done";
@@ -177,7 +178,131 @@ public class FlowRunner(
         {
             run.EstimatedCostUsd = spent;
             run.FinishedAt = DateTimeOffset.UtcNow;
-            PersistRun(run);
+            save();
+        }
+    }
+
+    // ---- Several photos: the same flow, once per photo, one after another ------------------------------
+
+    /// <summary>How many photos one batch may take.</summary>
+    public const int MaxBatchInputs = 10;
+
+    /// <summary>A batch that was interrupted (restart) stops blocking the flow after this long.</summary>
+    public static readonly TimeSpan BatchStaleAfter = TimeSpan.FromHours(2);
+
+    public static bool IsRunning(FlowBatch? batch) =>
+        batch is { Status: "running" } && DateTimeOffset.UtcNow - batch.StartedAt < BatchStaleAfter;
+
+    /// <summary>The first steps of a flow: prompt steps that don't build on another step. The input photo goes there.</summary>
+    public static List<FlowNode> EntrySteps(Flow flow) =>
+        [.. flow.Nodes.Where(n => n.Type == "prompt"
+            && !flow.Edges.Any(e => e.Target == n.Id && flow.Nodes.Any(p => p.Id == e.Source && p.Type == "prompt")))];
+
+    /// <summary>
+    /// Kick off a batch. Returns immediately; photos are processed one at a time, so a batch of ten never asks the
+    /// machine or the AI providers for ten things at once.
+    /// </summary>
+    public FlowBatch StartBatch(Flow flow, User user, RunPlan plan, List<string> inputUrls)
+    {
+        var batch = new FlowBatch
+        {
+            Id = Ids.New("batch"),
+            FlowId = flow.Id,
+            Status = "running",
+            EstimatedCostUsd = plan.EstimatedCostUsd * inputUrls.Count,
+            StartedAt = DateTimeOffset.UtcNow,
+            Items = inputUrls.Select(url => new FlowBatchItem { InputUrl = url }).ToList(),
+        };
+        flow.LastBatch = batch;
+
+        var entry = EntrySteps(flow).Select(n => n.Id).ToHashSet();
+        var nodes = flow.Nodes.ToList();
+        var edges = flow.Edges.ToList();
+        var workspaceId = flow.WorkspaceId;
+        _ = Task.Run(() => ExecuteBatchAsync(flow.Name, workspaceId, user, batch, nodes, entry, edges, plan));
+        return batch;
+    }
+
+    private async Task ExecuteBatchAsync(string flowName, string workspaceId, User user, FlowBatch batch, List<FlowNode> nodes,
+        HashSet<string> entrySteps, List<FlowEdge> edges, RunPlan plan)
+    {
+        try
+        {
+            foreach (var item in batch.Items)
+            {
+                item.Status = "running";
+                item.Run = new FlowRun
+                {
+                    Id = Ids.New("run"),
+                    FlowId = batch.FlowId,
+                    WorkspaceId = workspaceId,
+                    Status = "running",
+                    EstimatedCostUsd = plan.EstimatedCostUsd,
+                    StartedAt = DateTimeOffset.UtcNow,
+                    Steps = plan.Order.Select(id => new FlowRunStep { NodeId = id, Status = "queued" }).ToList(),
+                };
+                // ExecuteAsync never throws: a failed photo is marked failed and the next one still runs.
+                await ExecuteAsync(flowName, user, item.Run, WithInputPhoto(nodes, entrySteps, item.InputUrl), edges,
+                    persist: () => PersistBatch(batch));
+                item.Status = item.Run.Status == "completed" ? "done" : "failed";
+                item.Error = item.Run.Error;
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Flow batch {BatchId} stopped early", batch.Id);
+            foreach (var item in batch.Items.Where(i => i.Status is "queued" or "running")) { item.Status = "failed"; item.Error ??= "This photo wasn't processed."; }
+        }
+        finally
+        {
+            batch.Status = batch.Items.Any(i => i.Status == "done") ? "completed" : "failed";
+            batch.EstimatedCostUsd = batch.Items.Sum(i => i.Run?.EstimatedCostUsd ?? 0m); // what really ran
+            batch.FinishedAt = DateTimeOffset.UtcNow;
+            PersistBatch(batch);
+        }
+    }
+
+    /// <summary>The flow's steps with this photo as "image 1" of every first step (other attachments are kept).</summary>
+    private static Dictionary<string, FlowNode> WithInputPhoto(List<FlowNode> nodes, HashSet<string> entrySteps, string photoUrl)
+    {
+        var result = new Dictionary<string, FlowNode>();
+        foreach (var node in nodes)
+        {
+            if (!entrySteps.Contains(node.Id)) { result[node.Id] = node; continue; }
+            var attachments = (node.Data.Attachments ?? []).ToList();
+            var photo = new FlowAttachment { Id = Ids.New("att"), Name = "Input photo", Kind = "image", Url = photoUrl };
+            var first = attachments.FindIndex(a => a.Kind == "image");
+            if (first >= 0) attachments[first] = photo; else attachments.Insert(0, photo);
+            result[node.Id] = new FlowNode
+            {
+                Id = node.Id,
+                Type = node.Type,
+                Position = node.Position,
+                Data = new FlowStepData
+                {
+                    Kind = node.Data.Kind, Title = node.Data.Title, Prompt = node.Data.Prompt, Attachments = attachments,
+                    UsePrevious = node.Data.UsePrevious, Mode = node.Data.Mode, Ratio = node.Data.Ratio, Count = node.Data.Count,
+                    Quality = node.Data.Quality, BrandKitId = node.Data.BrandKitId, Model = node.Data.Model,
+                    DurationSeconds = node.Data.DurationSeconds,
+                },
+            };
+        }
+        return result;
+    }
+
+    private void PersistBatch(FlowBatch batch)
+    {
+        try
+        {
+            WithStore(store =>
+            {
+                if (store.GetFlowById(batch.FlowId) is { } flow && (flow.LastBatch is null || flow.LastBatch.Id == batch.Id)) flow.LastBatch = batch;
+                return 0;
+            });
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Couldn't save progress of flow batch {BatchId}", batch.Id);
         }
     }
 
@@ -256,7 +381,7 @@ public class FlowRunner(
 
     /// <summary>Create a real Generation for the output card and wait for it. Returns its estimated cost.</summary>
     private async Task<decimal> RunOutputAsync(string flowName, User user, FlowRun run, FlowRunStep step, FlowNode node,
-        Dictionary<string, FlowNode> nodes, List<FlowEdge> edges)
+        Dictionary<string, FlowNode> nodes, List<FlowEdge> edges, Action save)
     {
         var isVideo = node.Data.Mode == "video";
         var count = Math.Clamp(node.Data.Count ?? 1, 1, isVideo ? 2 : 6);
@@ -320,7 +445,7 @@ public class FlowRunner(
             Concepts = [],
         }));
         step.GenerationId = generation.Id;
-        PersistRun(run);
+        save();
 
         // Generations complete on read; poll until done (real providers can take a while).
         var deadline = DateTimeOffset.UtcNow + TimeSpan.FromMinutes(isVideo ? 10 : 3);

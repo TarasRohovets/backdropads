@@ -125,6 +125,7 @@ public class ProviderRouter(
     IEnumerable<IVideoModelProvider> videoProviders,
     ImageEditRouter editor,
     MediaStore mediaStore,
+    AiGate gate,
     IConfiguration configuration,
     ILogger<ProviderRouter> logger)
 {
@@ -178,6 +179,9 @@ public class ProviderRouter(
 
         if (configuration.GetValue("AI:UseMockData", true))
             return await GenerateMockAsync(isVideo, generation.Brief, spec, cancellationToken);
+
+        // Queue: wait for a free slot so the machine never runs more than a few AI jobs at once.
+        using var slot = await gate.EnterAsync(isVideo, cancellationToken);
 
         // Ecommerce core: with a product photo, image ads are built *around the real product* by an
         // edit model (Nano Banana → GPT Image) instead of generating a look-alike from text.
