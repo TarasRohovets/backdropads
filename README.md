@@ -5,15 +5,16 @@
   </picture>
 </h1>
 
-<p align="center"><b>Turn product photos into ads in minutes.</b> Open source, on your own AI keys.</p>
+<p align="center"><b>Turn your product into ads in minutes.</b> Open source, on your own AI keys.</p>
 
 [![License: AGPL v3](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
 ![Self-hosted](https://img.shields.io/badge/self--hosted-Docker-2496ED)
 ![Next.js](https://img.shields.io/badge/web-Next.js%2015-black)
 ![.NET](https://img.shields.io/badge/api-.NET%209-512BD4)
 
-**Upload up to 10 photos, pick an ad style, and get a finished image or video ad for each one.** Ads come out
-sized for Instagram, Facebook, TikTok, YouTube, Pinterest and Google Display.
+**Start from a photo, a link or a short description, pick an ad style, and get finished image and video ads.**
+They come out sized for Instagram, Facebook, TikTok, YouTube, Pinterest and Google Display. Many products? Run
+up to 10 photos in one go.
 
 An ad style is a flow: a few steps written as plain sentences ("clean backdrop", then "add a headline"). Use a
 ready-made one or write your own, pick the AI model, see what it will cost before it runs, and download the
