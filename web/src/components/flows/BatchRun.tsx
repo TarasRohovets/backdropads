@@ -1,14 +1,13 @@
 "use client";
 
 import { useRef, useState } from "react";
-import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { AlertCircle, Check, ChevronDown, ChevronUp, Clock, Images, Loader2, Upload as UploadIcon } from "lucide-react";
+import { Images, Loader2, Upload as UploadIcon } from "lucide-react";
 import { FlowsApi } from "@/api/flows.api";
 import { UploadsApi, isReusablePhoto, type Upload } from "@/api/uploads.api";
 import { apiError } from "@/api/client";
-import { MAX_BATCH_PHOTOS, type FlowBatch, type FlowBatchItem } from "@/lib/flows";
+import { MAX_BATCH_PHOTOS, type FlowBatch } from "@/lib/flows";
 import { usd } from "@/lib/catalog";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -167,95 +166,5 @@ export function BatchRunButton({
         </DialogContent>
       </Dialog>
     </>
-  );
-}
-
-const STATUS: Record<FlowBatchItem["status"], { label: string; className: string }> = {
-  queued: { label: "Waiting", className: "text-muted-foreground" },
-  running: { label: "Running", className: "text-iris" },
-  done: { label: "Done", className: "text-mint" },
-  failed: { label: "Failed", className: "text-destructive" },
-};
-
-/** Progress of the last batch: one row per photo, with a link to each result. Polls while it runs. */
-export function BatchPanel({ flowId, batch, onChange }: { flowId: string; batch: FlowBatch; onChange: (batch: FlowBatch | null) => void }) {
-  const qc = useQueryClient();
-  const [open, setOpen] = useState(true);
-  const running = batch.status === "running";
-
-  useQuery({
-    queryKey: ["flow-batch", flowId, batch.id],
-    queryFn: async () => {
-      const latest = await FlowsApi.getBatch(flowId);
-      if (latest && latest.id === batch.id) {
-        if (latest.status !== "running") qc.invalidateQueries({ queryKey: ["system"] });
-        onChange(latest);
-      }
-      return latest;
-    },
-    enabled: running,
-    refetchInterval: 2500,
-  });
-
-  const finished = batch.items.filter((i) => i.status === "done" || i.status === "failed").length;
-  const failed = batch.items.filter((i) => i.status === "failed").length;
-
-  return (
-    <div className="absolute bottom-4 left-16 z-10 w-[min(26rem,calc(100%-5rem))] rounded-xl border border-border bg-card/95 shadow-lg backdrop-blur">
-      <div className="flex items-center gap-2 px-4 py-3">
-        {running ? <Loader2 className="h-4 w-4 animate-spin text-iris" /> : failed === batch.items.length ? <AlertCircle className="h-4 w-4 text-destructive" /> : <Check className="h-4 w-4 text-mint" />}
-        <p className="min-w-0 flex-1 truncate text-sm font-semibold">
-          {running ? `Running on photos: ${finished} of ${batch.items.length} finished` : `${batch.items.length - failed} of ${batch.items.length} photos finished`}
-          {failed > 0 && !running && <span className="font-normal text-muted-foreground"> · {failed} failed</span>}
-        </p>
-        <button type="button" aria-label={open ? "Collapse" : "Expand"} onClick={() => setOpen((o) => !o)} className="rounded p-1 text-muted-foreground hover:text-foreground">
-          {open ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
-        </button>
-        {!running && (
-          <button type="button" onClick={() => onChange(null)} className="text-xs text-muted-foreground hover:text-foreground">
-            Hide
-          </button>
-        )}
-      </div>
-
-      {open && (
-        <ul className="max-h-64 space-y-1 overflow-y-auto border-t border-border px-2 py-2 scrollbar-thin">
-          {batch.items.map((item, i) => {
-            const outputs = (item.run?.steps ?? []).filter((s) => s.generationId);
-            const status = STATUS[item.status];
-            return (
-              <li key={`${item.inputUrl}-${i}`} className="flex items-center gap-3 rounded-lg px-2 py-1.5">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={item.inputUrl} alt={`Photo ${i + 1}`} className="h-10 w-10 shrink-0 rounded-md object-cover" loading="lazy" />
-                <div className="min-w-0 flex-1">
-                  <p className={cn("flex items-center gap-1.5 text-xs font-semibold", status.className)}>
-                    {item.status === "running" ? <Loader2 className="h-3 w-3 animate-spin" /> : item.status === "queued" ? <Clock className="h-3 w-3" /> : null}
-                    {status.label}
-                  </p>
-                  {item.error && <p className="truncate text-[11px] text-muted-foreground" title={item.error}>{item.error}</p>}
-                </div>
-                <div className="flex shrink-0 items-center gap-1.5">
-                  {outputs.map((step) => {
-                    const thumb = step.resultUrls.find((u) => !!u);
-                    return (
-                      <Link key={step.nodeId} href={`/generations/${step.generationId}`} className="group flex items-center" title="Open the result">
-                        {thumb && !/\.(mp4|webm|mov)(\?|$)/i.test(thumb) ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={thumb} alt="Result" className="h-10 w-10 rounded-md border border-border object-cover group-hover:border-primary" loading="lazy" />
-                        ) : (
-                          <span className="rounded-md border border-border px-2 py-1 text-[11px] font-semibold group-hover:border-primary">
-                            {step.status === "done" ? "Open" : "…"}
-                          </span>
-                        )}
-                      </Link>
-                    );
-                  })}
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-    </div>
   );
 }

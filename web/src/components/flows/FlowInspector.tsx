@@ -10,7 +10,8 @@ import { ATTACHMENT_ACCEPT, ATTACHMENT_HINT, attachmentKind, formatBytes, valida
 import { UploadsApi, type Upload } from "@/api/uploads.api";
 import { LibraryDialog } from "@/components/uploads/LibraryDialog";
 import { BrandKitApi } from "@/api/brandkit.api";
-import { ratioCss } from "@/lib/taxonomy";
+import { PLATFORMS, PLATFORM_RULES, ratioCss } from "@/lib/taxonomy";
+import type { Platform } from "@/models";
 import { cn } from "@/lib/utils";
 import { defaultModelId, findModel, modelUnitCost, snapDuration, usd } from "@/lib/catalog";
 import { useCatalog } from "@/hooks/use-catalog";
@@ -245,7 +246,18 @@ export function FlowInspector({ node, stepNumber, onChange, onClose, onSave, onD
               <div className="mt-1.5">
                 <Segmented
                   value={node.data.mode}
-                  onChange={(mode) => onChange({ mode, ratio: RATIOS[mode][0], count: mode === "video" ? 1 : (node.data as OutputStepData).count, model: defaultModelId(catalog, mode), durationSeconds: null })}
+                  onChange={(mode) => {
+                    const d = node.data as OutputStepData;
+                    const rules = d.platform ? PLATFORM_RULES[d.platform as Platform] : [];
+                    const rule = rules.find((r) => r.placement === d.placement && r.creativeTypes.includes(mode)) ?? rules.find((r) => r.creativeTypes.includes(mode));
+                    onChange({
+                      mode,
+                      count: mode === "video" ? 1 : d.count,
+                      model: defaultModelId(catalog, mode),
+                      durationSeconds: null,
+                      ...(rule ? { placement: rule.placement, ratio: rule.aspectRatio } : { platform: null, placement: null, ratio: RATIOS[mode][0] }),
+                    });
+                  }}
                   options={[
                     { value: "image", label: <><ImageIcon className="h-3.5 w-3.5" /> Image</> },
                     { value: "video", label: <><Clapperboard className="h-3.5 w-3.5" /> Video</> },
@@ -253,6 +265,75 @@ export function FlowInspector({ node, stepNumber, onChange, onClose, onSave, onD
                 />
               </div>
             </div>
+            <div>
+              <Label>Where it will run</Label>
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {[{ id: "", label: "Anywhere" }, ...PLATFORMS].map((p) => {
+                  const on = ((node.data as OutputStepData).platform ?? "") === p.id;
+                  return (
+                    <button
+                      key={p.id || "any"}
+                      type="button"
+                      aria-pressed={on}
+                      onClick={() => {
+                        const d = node.data as OutputStepData;
+                        if (!p.id) return onChange({ platform: null, placement: null });
+                        // first format of this platform that takes the current kind of ad, else its first format
+                        const rules = PLATFORM_RULES[p.id as Platform];
+                        const rule = rules.find((r) => r.creativeTypes.includes(d.mode)) ?? rules[0];
+                        const mode = rule.creativeTypes.includes(d.mode) ? d.mode : "video";
+                        onChange({
+                          platform: p.id,
+                          placement: rule.placement,
+                          ratio: rule.aspectRatio,
+                          ...(mode !== d.mode ? { mode, count: 1, model: defaultModelId(catalog, mode), durationSeconds: null } : {}),
+                        });
+                      }}
+                      className={cn(
+                        "rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors",
+                        on ? "border-primary text-foreground" : "border-border text-muted-foreground hover:border-iris/60"
+                      )}
+                    >
+                      {p.label}
+                    </button>
+                  );
+                })}
+              </div>
+              {(node.data as OutputStepData).platform && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {PLATFORM_RULES[(node.data as OutputStepData).platform as Platform].map((r) => {
+                    const d = node.data as OutputStepData;
+                    const on = d.placement === r.placement;
+                    const videoOnly = !r.creativeTypes.includes("image");
+                    return (
+                      <button
+                        key={r.placement}
+                        type="button"
+                        aria-pressed={on}
+                        onClick={() => {
+                          const mode = r.creativeTypes.includes(d.mode) ? d.mode : videoOnly ? "video" : "image";
+                          onChange({
+                            placement: r.placement,
+                            ratio: r.aspectRatio,
+                            ...(mode !== d.mode ? { mode, count: 1, model: defaultModelId(catalog, mode), durationSeconds: null } : {}),
+                          });
+                        }}
+                        className={cn(
+                          "rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors",
+                          on ? "border-primary bg-primary/10 text-foreground" : "border-border text-muted-foreground hover:border-iris/60"
+                        )}
+                      >
+                        {r.label} <span className="font-mono text-[10px] font-normal text-muted-foreground">{r.aspectRatio}{videoOnly ? " · video" : !r.creativeTypes.includes("video") ? " · image" : ""}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              <p className="mt-1.5 text-[11px] text-muted-foreground">
+                {(node.data as OutputStepData).platform ? "The format sets the size for you." : "Pick a platform to get the right format, or choose a size yourself."}
+              </p>
+            </div>
+            {!(node.data as OutputStepData).platform && (
             <div>
               <Label>Size</Label>
               <div className="mt-1.5 grid grid-cols-4 gap-2">
@@ -272,6 +353,7 @@ export function FlowInspector({ node, stepNumber, onChange, onClose, onSave, onD
                 ))}
               </div>
             </div>
+            )}
             <div>
               <Label>How many</Label>
               <div className="mt-1.5">

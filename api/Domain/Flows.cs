@@ -60,6 +60,10 @@ public class FlowStepData
     /// <summary>"image" | "video"</summary>
     public string? Mode { get; set; }
     public string? Ratio { get; set; }
+    /// <summary>Where the ad will run, when the card targets a platform ("instagram"); null = any, sized by Ratio.</summary>
+    public string? Platform { get; set; }
+    /// <summary>The format on that platform ("feed", "story", "reel", …). Set together with Platform.</summary>
+    public string? Placement { get; set; }
     public int? Count { get; set; }
     /// <summary>"standard" | "high"</summary>
     public string? Quality { get; set; }

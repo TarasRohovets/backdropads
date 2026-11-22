@@ -84,12 +84,23 @@ public static class FlowFiles
     {
         var isVideo = data.Mode == "video";
         var ratios = isVideo ? VideoRatios : ImageRatios;
+        // A platform target is kept only when it is one this version knows and it takes this kind of ad.
+        string? platform = null, placement = null, targetRatio = null;
+        if (Services.FlowRunner.TryTarget(data, out var p, out var pl)
+            && Taxonomy.TryValidate(p, pl, isVideo ? CreativeType.Video : CreativeType.Image, out var aspect, out _))
+        {
+            platform = char.ToLowerInvariant(p.ToString()[0]) + p.ToString()[1..];
+            placement = char.ToLowerInvariant(pl.ToString()[0]) + pl.ToString()[1..];
+            targetRatio = aspect;
+        }
         return new FlowStepData
         {
             Kind = "output",
             Title = Short(data.Title, "Output"),
             Mode = isVideo ? "video" : "image",
-            Ratio = ratios.Contains(data.Ratio ?? "") ? data.Ratio : isVideo ? "9:16" : "4:5",
+            Ratio = targetRatio ?? (ratios.Contains(data.Ratio ?? "") ? data.Ratio : isVideo ? "9:16" : "4:5"),
+            Platform = platform,
+            Placement = placement,
             Count = Math.Clamp(data.Count ?? 1, 1, isVideo ? 2 : 6),
             Quality = data.Quality == "high" ? "high" : "standard",
             BrandKitId = string.Equals(data.BrandKitId, "none", StringComparison.OrdinalIgnoreCase) ? "none" : "primary",

@@ -39,6 +39,10 @@ export interface OutputStepData extends RunFields {
   title: string;
   mode: "image" | "video";
   ratio: string;
+  /** where the ad will run, when the card targets a platform; null = any (sized by ratio) */
+  platform?: string | null;
+  /** the format on that platform: feed, story, reel, short, video, pin, display */
+  placement?: string | null;
   count: number;
   quality: "standard" | "high";
   brandKitId: string;
@@ -171,6 +175,8 @@ export function normalizeNode(n: FlowNode): FlowNode {
         brandKitId: String(d.brandKitId ?? "primary"),
         model: String(d.model ?? defaultModelId(DEFAULT_CATALOG, d.mode === "video" ? "video" : "image")),
         durationSeconds: d.durationSeconds == null ? null : Number(d.durationSeconds),
+        platform: d.platform && d.placement ? String(d.platform) : null,
+        placement: d.platform && d.placement ? String(d.placement) : null,
       },
     };
   }
@@ -190,8 +196,8 @@ export function normalizeNode(n: FlowNode): FlowNode {
 export function toSavable(n: FlowNode): FlowNode {
   const d = n.data;
   if (d.kind === "output") {
-    const { kind, title, mode, ratio, count, quality, brandKitId, model, durationSeconds } = d;
-    return { id: n.id, type: n.type, position: n.position, data: { kind, title, mode, ratio, count, quality, brandKitId, model, durationSeconds } };
+    const { kind, title, mode, ratio, count, quality, brandKitId, model, durationSeconds, platform, placement } = d;
+    return { id: n.id, type: n.type, position: n.position, data: { kind, title, mode, ratio, count, quality, brandKitId, model, durationSeconds, platform: platform ?? null, placement: placement ?? null } };
   }
   const { kind, title, prompt, attachments, usePrevious } = d;
   return { id: n.id, type: n.type, position: n.position, data: { kind, title, prompt, attachments, usePrevious } };

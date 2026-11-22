@@ -47,7 +47,8 @@ import { usd } from "@/lib/catalog";
 import { apiError } from "@/api/client";
 import { FlowActions, nodeTypes } from "./FlowNodes";
 import { FlowInspector } from "./FlowInspector";
-import { BatchPanel, BatchRunButton } from "./BatchRun";
+import { BatchRunButton } from "./BatchRun";
+import { FlowResults } from "./FlowResults";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -389,7 +390,6 @@ function Board({ flow }: { flow: FlowDoc }) {
 
         {/* Canvas */}
         <div className="relative flex-1">
-          {batch && <BatchPanel flowId={flow.id} batch={batch} onChange={setBatch} />}
           <ReactFlow
             nodes={nodes}
             edges={edges}
@@ -446,6 +446,9 @@ function Board({ flow }: { flow: FlowDoc }) {
             />
           )}
         </div>
+
+        {/* Results: every ad this flow has produced, under the board */}
+        <FlowResults flowId={flow.id} nodes={nodes.map(fromRF)} run={run} batch={batch} onBatchChange={setBatch} />
       </div>
     </FlowActions.Provider>
   );

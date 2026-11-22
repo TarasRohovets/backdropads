@@ -34,6 +34,10 @@ This repository is the whole app. One command starts it. There is no account to 
   pipeline that ends in images or videos. Start from one of the starter flows or from a blank one.
 - **Run on photos.** Pick up to 10 photos and the flow runs once for each, one after another. One flow, a whole
   set of ads.
+- **Made for the platform.** Tell an output where the ad will run (Instagram, Facebook, TikTok, YouTube,
+  Pinterest, Google Display) and which format (feed, story, reel, short, pin), and it comes out in that size.
+- **Results in one place.** Every ad a flow has produced sits in a strip under the board, ready to open or
+  download.
 - **Share flows as files.** Export a flow and import it somewhere else. A file carries the steps and settings,
   never your photos.
 - **Start from anything.** A prompt, a photo, several photos, or a link to a page. Refer to photos in the

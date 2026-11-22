@@ -1,5 +1,6 @@
 "use client";
 
+import { targetLabel } from "./FlowResults";
 import { createContext, memo, useContext } from "react";
 import Link from "next/link";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
@@ -133,7 +134,7 @@ export function OutputNode({ data, selected }: NodeProps) {
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-bold">{d.title || "Output"}</p>
           <p className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
-            {d.mode} ×{d.count} · {d.ratio}
+            {d.mode} ×{d.count} · {targetLabel(d)}
             {d.mode === "video" && d.durationSeconds ? ` · ${d.durationSeconds}s` : ""}
             {d.quality === "high" ? (d.mode === "video" ? " · 1080p" : " · HQ") : ""}
             {d.model && d.model !== "auto" ? ` · ${d.model}` : ""}

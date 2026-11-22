@@ -40,6 +40,12 @@ public class FlowRunner(
 
         var hasVideo = outputs.Any(o => o.Data.Mode == "video");
 
+        // A card that targets a platform must ask for something that platform takes (a Reel is a video).
+        foreach (var output in outputs)
+            if (TryTarget(output.Data, out var p, out var pl)
+                && !Taxonomy.TryValidate(p, pl, output.Data.Mode == "video" ? CreativeType.Video : CreativeType.Image, out _, out _))
+                return new([], 0, false, $"\"{output.Data.Title}\" asks for {(output.Data.Mode == "video" ? "a video" : "an image")}, which {output.Data.Platform} {output.Data.Placement} doesn't take. Change the output type or the format.");
+
         var unknown = outputs.FirstOrDefault(o => OutputModel(o) is null);
         if (unknown is not null)
             return new([], 0, false, $"Unknown model '{unknown.Data.Model}' on an output card.");
@@ -47,6 +53,16 @@ public class FlowRunner(
         var cost = flow.Nodes.Sum(n => n.Type == "prompt" ? ModelCatalog.EditCostUsd : OutputCost(n));
 
         return new(TopologicalOrder(flow), cost, hasVideo, null);
+    }
+
+    /// <summary>The platform and format an output card targets ("instagram" + "reel"); false when it only sets a size.</summary>
+    public static bool TryTarget(FlowStepData data, out Platform platform, out Placement placement)
+    {
+        platform = default;
+        placement = default;
+        if (string.IsNullOrWhiteSpace(data.Platform) || string.IsNullOrWhiteSpace(data.Placement)) return false;
+        if (int.TryParse(data.Platform, out _) || int.TryParse(data.Placement, out _)) return false; // names only
+        return Enum.TryParse(data.Platform, ignoreCase: true, out platform) && Enum.TryParse(data.Placement, ignoreCase: true, out placement);
     }
 
     private static AiModel? OutputModel(FlowNode node)
@@ -283,6 +299,7 @@ public class FlowRunner(
                     Kind = node.Data.Kind, Title = node.Data.Title, Prompt = node.Data.Prompt, Attachments = attachments,
                     UsePrevious = node.Data.UsePrevious, Mode = node.Data.Mode, Ratio = node.Data.Ratio, Count = node.Data.Count,
                     Quality = node.Data.Quality, BrandKitId = node.Data.BrandKitId, Model = node.Data.Model,
+                    Platform = node.Data.Platform, Placement = node.Data.Placement,
                     DurationSeconds = node.Data.DurationSeconds,
                 },
             };
@@ -387,6 +404,8 @@ public class FlowRunner(
         var count = Math.Clamp(node.Data.Count ?? 1, 1, isVideo ? 2 : 6);
         var targets = isVideo ? VideoTargets : ImageTargets;
         var (platform, placement) = targets.TryGetValue(node.Data.Ratio ?? "", out var t) ? t : targets.First().Value;
+        // The card names where the ad will run: that decides the format and the size.
+        if (TryTarget(node.Data, out var targetPlatform, out var targetPlacement)) (platform, placement) = (targetPlatform, targetPlacement);
         var creativeType = isVideo ? CreativeType.Video : CreativeType.Image;
         if (!Taxonomy.TryValidate(platform, placement, creativeType, out var aspectRatio, out var error))
             throw new InvalidOperationException(error);
