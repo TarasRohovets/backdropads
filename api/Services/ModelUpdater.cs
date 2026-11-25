@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Anthropic.Exceptions;
 
 namespace BackdropAds.Api.Services;
 
@@ -22,13 +23,14 @@ public partial class ModelUpdater(
     IConfiguration configuration,
     IHttpClientFactory httpClientFactory,
     ModelSettingsStore settings,
+    ClaudeText claude,
     ILogger<ModelUpdater> logger)
 {
     /// <summary>A model family: where its version is configured and how to recognise its members in a provider's list.</summary>
     private sealed record Family(
         string Id,            // catalog / probe id ("gpt-image-flare"); null-like "" = no display name to keep
         string Label,         // family name without a version ("GPT Image Flare")
-        string Provider,      // OpenAI | Google | fal
+        string Provider,      // OpenAI | Google | Anthropic | fal
         string SettingKey,    // AI:OpenAI:FlareModel
         string Default,       // version that ships with the app
         Regex Pattern,        // matches a member; group 1 = version
@@ -43,7 +45,7 @@ public partial class ModelUpdater(
     [GeneratedRegex(@"^Nano Banana (\d+(?:\.\d+)?)$")] private static partial Regex NanoBanana();
     [GeneratedRegex(@"^gemini-(\d+(?:\.\d+)?)-pro-image$")] private static partial Regex NanoBananaPro();
     [GeneratedRegex(@"^gemini-omni-(\d+(?:\.\d+)?)-flash$")] private static partial Regex OmniFlash();
-    [GeneratedRegex(@"^gemini-(\d+(?:\.\d+)?)-flash$")] private static partial Regex GeminiFlash();
+    [GeneratedRegex(@"^claude-sonnet-(\d+(?:-\d{1,2})?)$")] private static partial Regex ClaudeSonnet(); // not the dated ids
     [GeneratedRegex(@"^bytedance/seedream/v(\d+(?:\.\d+)?)(?:/pro)?/text-to-image$")] private static partial Regex Seedream();
     [GeneratedRegex(@"^bytedance/seedream/v(\d+(?:\.\d+)?)/flash/text-to-image$")] private static partial Regex SeedreamFlash();
     [GeneratedRegex(@"^blackforestlabs/flux-(\d+(?:\.\d+)?)/text-to-image$")] private static partial Regex Flux();
@@ -58,7 +60,7 @@ public partial class ModelUpdater(
         new("nano-banana", "Nano Banana", "Google", "AI:Google:ImageModel", ModelDefaults.GoogleImage, NanoBanana(), MatchDisplayName: true),
         new("nano-banana-pro", "Nano Banana Pro", "Google", "AI:Google:ImageProModel", ModelDefaults.GoogleImagePro, NanoBananaPro(), NameFormat: "Nano Banana Pro"),
         new("gemini-omni-flash", "Gemini Omni Flash", "Google", "AI:Google:VideoModel", ModelDefaults.GoogleVideo, OmniFlash()),
-        new("", "Document reader", "Google", "AI:Google:TextModel", ModelDefaults.GoogleText, GeminiFlash()),
+        new("", "Document reader", "Anthropic", "AI:Anthropic:TextModel", ModelDefaults.ClaudeText, ClaudeSonnet()),
         new("seedream", "Seedream", "fal", "AI:Fal:Apps:seedream", ModelDefaults.FalSeedream, Seedream(), NameFormat: "Seedream {0}", Query: "seedream"),
         new("seedream-flash", "Seedream Flash", "fal", "AI:Fal:Apps:seedream-flash", ModelDefaults.FalSeedreamFlash, SeedreamFlash(), NameFormat: "Seedream {0} Flash", Query: "seedream"),
         new("flux", "FLUX", "fal", "AI:Fal:Apps:flux", ModelDefaults.FalFlux, Flux(), NameFormat: "FLUX {0}", Query: "flux"),
@@ -82,10 +84,11 @@ public partial class ModelUpdater(
                 {
                     "OpenAI" => Has("AI:OpenAI:ApiKey") ? new() { [""] = await OpenAiModelsAsync(ct) } : [],
                     "Google" => Has("AI:Google:ApiKey") ? new() { [""] = await GoogleModelsAsync(ct) } : [],
+                    "Anthropic" => claude.HasKey ? new() { [""] = await ClaudeModelsAsync(ct) } : [],
                     _ => Has("AI:Fal:ApiKey") ? await FalModelsAsync(group.Select(f => f.Query!).Distinct(), ct) : [],
                 };
             }
-            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or AnthropicException)
             {
                 logger.LogWarning(ex, "Model update: couldn't read the model list from {Provider}.", group.Key);
                 skipped.Add(new(group.Key, "Couldn't read its model list right now. Try again later."));
@@ -136,6 +139,7 @@ public partial class ModelUpdater(
         if (!match.Success) return null;
         var text = match.Groups.Cast<Group>().Skip(1).FirstOrDefault(g => g.Success)?.Value;
         if (text is null) return null;
+        text = text.Replace('-', '.'); // Claude writes versions as 5-5
         return Version.TryParse(text.Contains('.') ? text : text + ".0", out var version) ? version : null;
     }
 
@@ -191,6 +195,18 @@ public partial class ModelUpdater(
         return models;
     }
 
+    private async Task<List<Listed>> ClaudeModelsAsync(CancellationToken ct)
+    {
+        var models = new List<Listed>();
+        var page = await claude.Client.Models.List(new() { Limit = 1000 }, ct);
+        while (true)
+        {
+            models.AddRange(page.Items.Select(m => new Listed(m.ID, m.DisplayName)));
+            if (!page.HasNext()) return models;
+            page = await page.Next(ct);
+        }
+    }
+
     /// <summary>fal's model registry: active endpoints matching each search term.</summary>
     private async Task<Dictionary<string, List<Listed>>> FalModelsAsync(IEnumerable<string> queries, CancellationToken ct)
     {
@@ -224,7 +240,7 @@ public static class ModelDefaults
     public const string GoogleImage = "gemini-nano-banana-2.1";
     public const string GoogleImagePro = "gemini-3-pro-image";
     public const string GoogleVideo = "gemini-omni-1.2-flash";
-    public const string GoogleText = "gemini-3.8-flash";
+    public const string ClaudeText = "claude-sonnet-5-5";
     public const string Seedance = "dreamina-seedance-2-5-260628";
     public const string SeedanceFlash = "dreamina-seedance-2-5-flash-261115";
     public const string Kling = "kling-v3";

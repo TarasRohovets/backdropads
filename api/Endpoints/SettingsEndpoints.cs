@@ -15,9 +15,11 @@ public static class SettingsEndpoints
     private static readonly Provider[] Providers =
     [
         new("google", "Google Gemini API", ["GOOGLE_API_KEY"], ["AI:Google:ApiKey"],
-            "Nano Banana, Nano Banana Pro, Gemini Omni video, reading PDFs and text", "https://aistudio.google.com/apikey"),
+            "Nano Banana, Nano Banana Pro, Gemini Omni video", "https://aistudio.google.com/apikey"),
         new("openai", "OpenAI", ["OPENAI_API_KEY"], ["AI:OpenAI:ApiKey"],
             "GPT Image Flare and Sunburst, image edits, voiceover", "https://platform.openai.com/api-keys"),
+        new("anthropic", "Anthropic (Claude)", ["ANTHROPIC_API_KEY"], ["AI:Anthropic:ApiKey"],
+            "Text work: reading attached PDFs and text files", "https://platform.claude.com/settings/keys"),
         new("seedance", "BytePlus ModelArk", ["SEEDANCE_API_KEY"], ["AI:Seedance:ApiKey"],
             "Seedance video", "https://console.byteplus.com/ark"),
         new("kling", "Kling", ["KLING_ACCESS_KEY", "KLING_SECRET_KEY"], ["AI:Kling:AccessKey", "AI:Kling:SecretKey"],

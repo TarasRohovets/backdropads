@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text.Json;
+using Anthropic.Exceptions;
 using BackdropAds.Api.Data;
 using BackdropAds.Api.Domain;
 using Dapper;
@@ -11,7 +12,7 @@ public sealed record ModelProbe(
     string Id,
     string Label,
     string Kind,          // image | video | edit | voice | text
-    string Provider,      // OpenAI | Google | fal | BytePlus | Kling
+    string Provider,      // OpenAI | Google | Anthropic | fal | BytePlus | Kling
     string ProviderModelId,
     bool InAutoChain);
 
@@ -36,6 +37,7 @@ public class ModelHealthService(
     IConfiguration configuration,
     IHttpClientFactory httpClientFactory,
     DbContext db,
+    ClaudeText claude,
     ILogger<ModelHealthService> logger)
 {
     private string Cfg(string key, string fallback) => configuration[key] is { Length: > 0 } v ? v : fallback;
@@ -70,7 +72,7 @@ public class ModelHealthService(
             P("wan", Name("wan"), "video", "fal", Fal("wan", ModelDefaults.FalWan)),
             P("omnihuman", Name("omnihuman"), "video", "fal", Fal("omnihuman", ModelDefaults.FalOmniHuman)),
             P("tts", "Voiceover (TTS)", "voice", "OpenAI", Cfg("AI:OpenAI:TtsModel", ModelDefaults.OpenAiTts)),
-            P("document-reader", "Document reader (LLM)", "text", "Google", Cfg("AI:Google:TextModel", ModelDefaults.GoogleText)),
+            P("document-reader", "Document reader (Claude)", "text", "Anthropic", claude.Model),
         ];
     }
 
@@ -128,6 +130,19 @@ public class ModelHealthService(
                     if (!Has("AI:Google:ApiKey")) return R("notConfigured", "GOOGLE_API_KEY is not set");
                     return await LookupAsync(R, $"https://generativelanguage.googleapis.com/v1beta/models/{Uri.EscapeDataString(p.ProviderModelId)}",
                         ("x-goog-api-key", configuration["AI:Google:ApiKey"]!), ct);
+
+                case "Anthropic":
+                    if (!claude.HasKey) return R("notConfigured", "ANTHROPIC_API_KEY is not set");
+                    try
+                    {
+                        await claude.Client.Models.Retrieve(p.ProviderModelId, cancellationToken: ct);
+                        return R("available", "Listed by the provider");
+                    }
+                    catch (AnthropicNotFoundException) { return R("unavailable", "The provider no longer lists this model id"); }
+                    catch (AnthropicUnauthorizedException) { return R("error", "API key rejected (401)"); }
+                    catch (AnthropicForbiddenException) { return R("error", "API key rejected (403)"); }
+                    catch (AnthropicApiException ex) { return R("error", $"Provider answered {(int)ex.StatusCode}"); }
+                    catch (AnthropicIOException ex) { return R("error", $"Provider unreachable: {ex.Message}"); }
 
                 case "fal":
                     if (!Has("AI:Fal:ApiKey")) return R("notConfigured", "FAL_API_KEY is not set");

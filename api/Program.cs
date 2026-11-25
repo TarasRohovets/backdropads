@@ -125,7 +125,9 @@ builder.Services.AddSingleton<IAdImprovementService, MockAdImprovementService>()
 builder.Services.AddSingleton<BrandScanner>();
 builder.Services.AddSingleton<ProductImporter>();
 builder.Services.AddSingleton<FlowRunner>();
-// PDFs / text attachments: read by an LLM (AI:Google:TextModel) before any image/video prompt.
+// Text work goes to Claude only (AI:Anthropic:TextModel). Today that is reading PDFs / text attachments
+// before any image/video prompt.
+builder.Services.AddSingleton<ClaudeText>();
 builder.Services.AddSingleton<DocumentReader>();
 // Settings → System: usage numbers + the weekly model availability report (report only, never switches models).
 builder.Services.AddSingleton<UsageQueries>();

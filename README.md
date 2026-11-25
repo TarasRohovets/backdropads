@@ -48,7 +48,7 @@ This repository is the whole app. One command starts it. There is no account to 
   estimated cost shown before you generate.
 - **No silent swaps.** If the model you picked isn't responding, you're offered a working one. You choose.
 - **Upload library.** Every photo, PDF and text file you upload stays available for the next ad. PDFs and text
-  are read by an LLM first, so only the relevant facts reach the image or video prompt.
+  are read by Claude first, so only the relevant facts reach the image or video prompt.
 - **Refine with a sentence.** "Make the background darker." Every version is kept.
 - **Brand kits and workspaces.** One workspace per brand, project or client, each with its own colors, voice and ads.
 - **Know what you spend.** Usage and estimated cost for the last 7 and 30 days, per model.
@@ -99,13 +99,15 @@ Add the keys you have to `.env`. A provider without a key is skipped. **Settings
 
 | Provider | `.env` key | Powers |
 |---|---|---|
-| [Google Gemini API](https://aistudio.google.com/apikey) | `GOOGLE_API_KEY` | Nano Banana, Nano Banana Pro, Gemini Omni video, reading PDFs and text |
+| [Google Gemini API](https://aistudio.google.com/apikey) | `GOOGLE_API_KEY` | Nano Banana, Nano Banana Pro, Gemini Omni video |
 | [OpenAI](https://platform.openai.com/api-keys) | `OPENAI_API_KEY` | GPT Image Flare and Sunburst, image edits, voiceover |
+| [Anthropic](https://platform.claude.com/settings/keys) | `ANTHROPIC_API_KEY` | Claude Sonnet 5.5 for text work: reading the PDFs and text files you attach |
 | [BytePlus ModelArk](https://console.byteplus.com/ark) | `SEEDANCE_API_KEY` | Seedance video |
 | [Kling](https://app.klingai.com/global/dev) | `KLING_ACCESS_KEY`, `KLING_SECRET_KEY` | Kling video |
 | [fal](https://fal.ai/dashboard/keys) | `FAL_API_KEY` | Seedream, FLUX, Wan, OmniHuman |
 
-One key is enough to start. A Google key alone covers images, video and document reading.
+One key is enough to start. A Google key alone covers images and video. Add an Anthropic key if you attach
+PDFs or text files: Claude reads them, and without the key they are not read.
 
 ## Keeping models current
 
@@ -113,7 +115,7 @@ AI providers ship new model versions every few weeks and switch old ones off. Ba
 
 - **A weekly check** asks each provider whether the models you use still exist and shows the result in
   **Settings → System**. It only reports.
-- **Update models** (the button at the top of that page) asks OpenAI, Google and fal for the newest version of
+- **Update models** (the button at the top of that page) asks OpenAI, Google, Anthropic and fal for the newest version of
   every model and switches to it. It's free, takes a few seconds, and **Use built-in versions** undoes it.
   BytePlus and Kling have no model listing, so those two are updated with the app.
 

@@ -31,6 +31,7 @@ services:
       # Your AI provider keys (set them in .env). A provider without a key is simply skipped.
       AI__Google__ApiKey: ${GOOGLE_API_KEY:-}
       AI__OpenAI__ApiKey: ${OPENAI_API_KEY:-}
+      AI__Anthropic__ApiKey: ${ANTHROPIC_API_KEY:-}
       AI__Seedance__ApiKey: ${SEEDANCE_API_KEY:-}
       AI__Kling__AccessKey: ${KLING_ACCESS_KEY:-}
       AI__Kling__SecretKey: ${KLING_SECRET_KEY:-}
