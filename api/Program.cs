@@ -128,6 +128,11 @@ builder.Services.AddSingleton<FlowRunner>();
 // Text work goes to Claude only (AI:Anthropic:TextModel). Today that is reading PDFs / text attachments
 // before any image/video prompt.
 builder.Services.AddSingleton<ClaudeText>();
+// Claude text work you ask for: "Improve with AI", prompt sets, "Create with AI" and the chat inside a flow.
+builder.Services.AddSingleton<PromptWriter>();
+builder.Services.AddSingleton<AiTextGate>();
+builder.Services.AddSingleton<FlowComposer>();
+builder.Services.AddSingleton<FlowEditor>();
 builder.Services.AddSingleton<DocumentReader>();
 // Settings → System: usage numbers + the weekly model availability report (report only, never switches models).
 builder.Services.AddSingleton<UsageQueries>();
@@ -143,6 +148,15 @@ var app = builder.Build();
 await app.InitializeDatabaseAsync();
 
 app.UseCors();
+// JSON bodies are small by nature (a brief, a prompt, a flow): cap them at 1 MB so nobody can post megabytes of text.
+// File uploads are multipart and keep their own limits (UploadEndpoints).
+app.Use(async (context, next) =>
+{
+    if (context.Request.ContentType?.StartsWith("application/json", StringComparison.OrdinalIgnoreCase) == true
+        && context.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>() is { IsReadOnly: false } size)
+        size.MaxRequestBodySize = 1024 * 1024;
+    await next();
+});
 app.UseRateLimiter();
 
 // Browsable UI at /swagger — local only (set Swagger:Enabled=true to expose it elsewhere).
@@ -172,6 +186,8 @@ var api = app.MapGroup("").AddEndpointFilter<SaveChangesFilter>();
 api.MapCatalogEndpoints();
 api.MapGenerationEndpoints();
 api.MapAdEndpoints();
+api.MapFolderEndpoints();
+api.MapPromptEndpoints();
 // "Analyze an ad" is hidden until it has a real implementation: today the service only writes placeholder
 // text and never looks at the ad. Re-enable together with ANALYZE_ENABLED in web/src/lib/features.ts.
 // api.MapRoastEndpoints();

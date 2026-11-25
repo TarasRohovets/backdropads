@@ -29,4 +29,18 @@ public class ClaudeText(IConfiguration configuration)
     public long MaxInputTokens => configuration.GetValue("AI:Anthropic:MaxInputTokens", 40_000L);
 
     public AnthropicClient Client => _client.Value;
+
+    /// <summary>Hook for a finished request's token use. Self-hosted, Anthropic's console shows your spend, so nothing is kept here.</summary>
+    public void Spent(string model, long inputTokens, long outputTokens) { }
+
+    /// <summary>Hook for a failed request (the caller already logs it).</summary>
+    public void Refused(string model, Exception ex) { }
+
+    /// <summary>Claude list prices per million tokens (input, output), by model family: a rough cost of one request.</summary>
+    public static decimal Cost(string model, long inputTokens, long outputTokens)
+    {
+        var m = model.ToLowerInvariant();
+        var (input, output) = m.Contains("haiku") ? (0.10m, 0.50m) : m.Contains("opus") ? (4m, 20m) : m.Contains("fable") || m.Contains("mythos") ? (8m, 40m) : (2m, 10m);
+        return (inputTokens * input + outputTokens * output) / 1_000_000m;
+    }
 }

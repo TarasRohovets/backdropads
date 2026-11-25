@@ -1,12 +1,13 @@
 "use client";
 
-import { forwardRef, useEffect, useRef, useState } from "react";
+import { Fragment, forwardRef, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   ArrowUp,
+  Bookmark,
   Check,
   Clapperboard,
   FileText,
@@ -18,10 +19,16 @@ import {
   Paperclip,
   Pencil,
   Plus,
+  ScrollText,
   SlidersHorizontal,
+  WandSparkles,
   X,
 } from "lucide-react";
-import type { BrandKit, Brief, CreativeType, Placement, Platform } from "@/models";
+import type { BrandKit, Brief, CreativeType, Placement, Platform, SavedPrompt } from "@/models";
+import { PromptsApi } from "@/api/prompts.api";
+import { PromptEditorDialog, useImprovePrompt } from "@/components/prompts/PromptEditorDialog";
+import { PromptModelPicker, usePromptModel } from "@/components/prompts/PromptModelPicker";
+import { wantsSeveral } from "@/components/flows/MassGenerationBanner";
 import { GenerationsApi } from "@/api/generations.api";
 import { UploadsApi, type Upload } from "@/api/uploads.api";
 import { LibraryPicker } from "@/components/uploads/LibraryPicker";
@@ -89,6 +96,8 @@ interface PromptComposerProps {
   initialMode?: Mode;
   initialProductId?: string | null;
   templateId?: string | null;
+  /** A saved prompt to start from (/create?promptId=…). */
+  initialPrompt?: SavedPrompt | null;
   className?: string;
 }
 
@@ -145,6 +154,7 @@ export function PromptComposer({
   initialMode = "image",
   initialProductId = null,
   templateId = null,
+  initialPrompt = null,
   className,
 }: PromptComposerProps) {
   const router = useRouter();
@@ -152,6 +162,9 @@ export function PromptComposer({
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [prompt, setPrompt] = useState("");
+  // A short name from a saved or AI-written prompt; names the ad instead of the prompt's first words.
+  const [promptTitle, setPromptTitle] = useState<string | null>(null);
+  const [savingPrompt, setSavingPrompt] = useState(false);
   const [mode, setMode] = useState<Mode>(initialMode);
   const [ratio, setRatio] = useState<RatioOption>(RATIOS[initialMode][initialMode === "image" ? 1 : 0]);
   const [quality, setQuality] = useState<Quality>("standard");
@@ -212,6 +225,36 @@ export function PromptComposer({
     if (next === "video") setCount((c) => Math.min(c, 2));
   };
 
+  const savedPrompts = useQuery({ queryKey: ["prompts"], queryFn: () => PromptsApi.list(), staleTime: 30_000 });
+  const promptGroups = useQuery({ queryKey: ["prompt-groups"], queryFn: () => PromptsApi.groups(), staleTime: 30_000 });
+  const applyPrompt = (p: SavedPrompt) => {
+    setPrompt(p.text);
+    setPromptTitle(p.title);
+    if (p.kind !== mode) switchMode(p.kind);
+    // Written for a particular model (Nano Banana Pro…): use that one, when this install has it.
+    if (p.targetModel && catalog.models[p.kind].some((m) => m.id === p.targetModel)) pickModel(p.kind, p.targetModel);
+    PromptsApi.use(p.id).then(() => qc.invalidateQueries({ queryKey: ["prompts"] })).catch(() => undefined);
+  };
+  const loadedPrompt = useRef<string | null>(null);
+  useEffect(() => {
+    if (!initialPrompt || loadedPrompt.current === initialPrompt.id) return;
+    loadedPrompt.current = initialPrompt.id;
+    applyPrompt(initialPrompt);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialPrompt?.id]);
+
+  // "Improve with AI": rewrite the box's text for the chosen kind of model; one click undoes it.
+  const writer = usePromptModel();
+  const improve = useImprovePrompt((res) => {
+    const previous = prompt;
+    setPrompt(res.prompt);
+    setPromptTitle(res.title);
+    toast.success("Prompt rewritten for the model", {
+      description: `${res.model ? `Written by ${res.model}. ` : ""}Edit it as you like, or save it for next time.`,
+      action: { label: "Undo", onClick: () => { setPrompt(previous); setPromptTitle(null); } },
+    });
+  });
+
   // The central upload library (photos + PDFs / text) is offered in the Attach menu — nothing needs re-uploading.
   const [attachOpen, setAttachOpen] = useState(false);
 
@@ -266,6 +309,7 @@ export function PromptComposer({
       const name =
         product?.name ??
         imported?.title ??
+        promptTitle ??
         (text ? text.split(/\s+/).slice(0, 4).join(" ") : null) ??
         hostName ??
         (brandKit?.brandName || "New ad");
@@ -388,11 +432,124 @@ export function PromptComposer({
         onKeyDown={(e) => {
           if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit();
         }}
-        rows={3}
+        // Grows with the text (an AI-written prompt is a paragraph), up to about 10 lines.
+        rows={Math.min(10, Math.max(3, prompt.split(/\r?\n/).reduce((n, line) => n + Math.max(1, Math.ceil(line.length / 72)), 0)))}
         placeholder={placeholder ?? defaultPlaceholder}
+        maxLength={4000}
         className="w-full resize-none bg-transparent px-1 font-sans text-base leading-relaxed text-foreground outline-none placeholder:text-muted-foreground/70 sm:text-lg"
         aria-label="Ad prompt"
       />
+
+      {/* Several photos to edit one by one: one prompt here makes one image from all of them. Flows edits each. */}
+      {attachments.filter((a) => a.kind === "image" && a.url).length > 1 && (
+        <div className="mb-2 flex flex-wrap items-center gap-2 rounded-xl border border-iris/40 bg-iris/10 px-3 py-2 text-xs">
+          <WandSparkles className="h-3.5 w-3.5 shrink-0 text-iris" />
+          <span className="min-w-0 flex-1">
+            {attachments.filter((a) => a.kind === "image" && a.url).length} photos attached. Here they make one image together — to edit each photo
+            into its own image, use Flows.
+          </span>
+          <Link
+            href={`/flows?compose=${encodeURIComponent(prompt.trim().slice(0, 1500))}&photos=${encodeURIComponent(
+              attachments.filter((a) => a.kind === "image" && a.url).slice(0, 6).map((a) => a.url).join(",")
+            )}`}
+            className="font-bold text-foreground underline underline-offset-2"
+          >
+            Edit each in Flows
+          </Link>
+        </div>
+      )}
+
+      {/* Asking for several different images in one prompt makes one collage: Flows makes each on its own. */}
+      {wantsSeveral(prompt) > 0 && mode === "image" && (
+        <div className="mb-2 flex flex-wrap items-center gap-2 rounded-xl border border-iris/40 bg-iris/10 px-3 py-2 text-xs">
+          <WandSparkles className="h-3.5 w-3.5 shrink-0 text-iris" />
+          <span className="min-w-0 flex-1">
+            Want {wantsSeveral(prompt)} different images? Flows makes each one on its own. Here, one prompt makes {effectiveCount === 1 ? "one image" : `${effectiveCount} takes on one idea`}.
+          </span>
+          <Link href={`/flows?compose=${encodeURIComponent(prompt.trim().slice(0, 2000))}`} className="font-bold text-foreground underline underline-offset-2">
+            Make them as a flow
+          </Link>
+        </div>
+      )}
+
+      {/* Prompt tools: saved prompts, AI rewrite, save */}
+      <div className="mb-1 flex flex-wrap items-center justify-end gap-1.5">
+        {prompt.length > 3500 && (
+          <span className={cn("mr-auto font-mono text-[10px]", prompt.length >= 4000 ? "text-flame" : "text-muted-foreground")}>
+            {prompt.length.toLocaleString("en-US")} / 4,000
+          </span>
+        )}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button type="button" className="inline-flex h-7 items-center gap-1.5 rounded-full px-2.5 text-xs font-semibold text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground">
+              <ScrollText className="h-3.5 w-3.5" /> Prompts
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-72">
+            <DropdownMenuLabel className="eyebrow">Saved prompts</DropdownMenuLabel>
+            <div className="max-h-72 overflow-y-auto">
+              {(savedPrompts.data ?? []).length === 0 && (
+                <p className="px-2 py-2 text-xs text-muted-foreground">Nothing saved yet. Write a prompt and press Save.</p>
+              )}
+              {[...(savedPrompts.data ?? [])]
+                .sort((a, b) => Number(b.kind === mode) - Number(a.kind === mode) || (a.groupId ?? "").localeCompare(b.groupId ?? "") || (a.position ?? 0) - (b.position ?? 0))
+                .map((p, i, list) => (
+                  <Fragment key={p.id}>
+                  {p.groupId && p.groupId !== list[i - 1]?.groupId && (
+                    <p className="px-2 pb-0.5 pt-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                      {promptGroups.data?.find((g) => g.id === p.groupId)?.name ?? "Prompt set"}
+                    </p>
+                  )}
+                  <DropdownMenuItem onClick={() => applyPrompt(p)} className="flex-col items-start gap-0.5">
+                    <span className="flex w-full items-center gap-1.5">
+                      {p.kind === "video" ? <Clapperboard className="h-3 w-3 shrink-0 text-muted-foreground" /> : <ImageIcon className="h-3 w-3 shrink-0 text-muted-foreground" />}
+                      <span className="truncate text-sm font-semibold">{p.title}</span>
+                    </span>
+                    <span className="line-clamp-1 text-[11px] text-muted-foreground">{p.text}</span>
+                  </DropdownMenuItem>
+                  </Fragment>
+                ))}
+            </div>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem asChild>
+              <Link href="/prompts"><ScrollText className="mr-2 h-3.5 w-3.5" /> Manage prompts</Link>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <button
+          type="button"
+          onClick={() => setSavingPrompt(true)}
+          disabled={!prompt.trim()}
+          className="inline-flex h-7 items-center gap-1.5 rounded-full px-2.5 text-xs font-semibold text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+          title="Save this prompt to reuse it"
+        >
+          <Bookmark className="h-3.5 w-3.5" /> Save
+        </button>
+        <PromptModelPicker ai={writer.ai} value={writer.model?.id} onChange={writer.choose} />
+        <button
+          type="button"
+          onClick={() =>
+            improve.mutate({
+              idea: prompt,
+              mode,
+              aspectRatio: ratio.ratio,
+              platform: ratio.platform,
+              model: model.id,
+              durationSeconds: mode === "video" ? duration : null,
+              productName: product?.name ?? source?.product?.title ?? null,
+              hasProductPhoto: hasImage,
+              brandKitId,
+              textModel: writer.model?.id,
+            })
+          }
+          disabled={prompt.trim().length < 3 || prompt.length > 2000 || improve.isPending}
+          className="inline-flex h-7 items-center gap-1.5 rounded-full border border-iris/50 bg-iris/10 px-2.5 text-xs font-bold text-foreground transition-colors hover:bg-iris/20 disabled:pointer-events-none disabled:opacity-40"
+          title={prompt.length > 2000 ? "Improve works on up to 2,000 characters" : `Rewrite it the way ${mode} models follow best`}
+        >
+          {improve.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <WandSparkles className="h-3.5 w-3.5 text-iris" />}
+          Improve with AI
+        </button>
+      </div>
 
       {/* Controls */}
       <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -618,6 +775,11 @@ export function PromptComposer({
         </div>
       </div>
 
+      <PromptEditorDialog
+        open={savingPrompt}
+        onOpenChange={setSavingPrompt}
+        initial={{ text: prompt, kind: mode, title: promptTitle ?? undefined }}
+      />
       <BrandKitEditor
         open={kitEditor.open}
         onOpenChange={(open) => setKitEditor((s) => ({ ...s, open }))}

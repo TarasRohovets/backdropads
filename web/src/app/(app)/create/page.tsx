@@ -11,6 +11,7 @@ import { UploadsPicker } from "@/components/uploads/UploadsPicker";
 import { ProductsApi, type ProductImport } from "@/api/products.api";
 import { apiError } from "@/api/client";
 import { TemplatesApi } from "@/api/templates.api";
+import { PromptsApi } from "@/api/prompts.api";
 import { PromptComposer, formatPrice, type ComposerSource } from "@/components/create/PromptComposer";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -78,6 +79,13 @@ function CreatePage() {
   const templateId = params.get("templateId");
   const templates = useQuery({ queryKey: ["templates"], queryFn: () => TemplatesApi.list(), enabled: !!templateId });
   const template = templates.data?.find((t) => t.id === templateId);
+  // Deep link from Prompts: /create?promptId=prm_… starts from a saved prompt.
+  const promptId = params.get("promptId");
+  const savedPrompts = useQuery({ queryKey: ["prompts"], queryFn: () => PromptsApi.list(), enabled: !!promptId });
+  const savedPrompt = savedPrompts.data?.find((p) => p.id === promptId) ?? null;
+  useEffect(() => {
+    if (savedPrompt) setKind("describe");
+  }, [savedPrompt]);
 
   const handleUpload = async (file: File) => {
     setUploading(true);
@@ -316,6 +324,7 @@ function CreatePage() {
           initialMode={template?.creativeType === "video" ? "video" : "image"}
           initialProductId={productId}
           templateId={templateId}
+          initialPrompt={savedPrompt}
         />
         <p className="mt-2 px-1 text-xs text-muted-foreground">
           {kind === "describe"

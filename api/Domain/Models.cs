@@ -182,6 +182,12 @@ public class Ad
 
     /// <summary>Which version is currently shown (matches an entry in Versions once any exist).</summary>
     public int CurrentVersion { get; set; } = 1;
+
+    /// <summary>The folder it's saved in, if any (see <see cref="Folder"/>).</summary>
+    public string? FolderId { get; set; }
+
+    /// <summary>The user's own version label ("v1", "v2", …), shown on the ad card. Null = none.</summary>
+    public string? VersionTag { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
 }
 

@@ -11,13 +11,16 @@ public static class AdEndpoints
     {
         var group = app.MapGroup("/api/ads").WithTags("Ads");
 
-        group.MapGet("/", (string? platform, string? creativeType, string? status, string? search, string? productId,
+        group.MapGet("/", (string? platform, string? creativeType, string? status, string? search, string? productId, string? folderId,
             AppStore store, IUserContext userContext) =>
         {
             IEnumerable<Ad> ads = store.ListAds(userContext.WorkspaceId);
 
             if (!string.IsNullOrWhiteSpace(productId))
                 ads = ads.Where(a => a.ProductId == productId);
+
+            if (!string.IsNullOrWhiteSpace(folderId))
+                ads = ads.Where(a => a.FolderId == folderId);
 
             if (!string.IsNullOrWhiteSpace(platform))
             {
@@ -68,6 +71,10 @@ public static class AdEndpoints
             if (concept is null)
                 return Results.NotFound(new { error = $"Concept '{request.ConceptId}' not found in generation '{generation.Id}'." });
 
+            var folderId = string.IsNullOrWhiteSpace(request.FolderId) ? null : request.FolderId;
+            if (folderId is not null && store.GetFolder(folderId, userContext.WorkspaceId) is null)
+                return Results.BadRequest(new { error = "That folder doesn't exist any more." });
+
             var ad = store.AddAd(new Ad
             {
                 Id = Ids.New("ad"),
@@ -92,6 +99,7 @@ public static class AdEndpoints
                 MediaUrl = concept.MediaUrl,
                 Model = concept.Model,
                 ProductId = generation.ProductId,
+                FolderId = folderId,
                 CreatedAt = DateTimeOffset.UtcNow,
             });
 
@@ -104,12 +112,27 @@ public static class AdEndpoints
             if (ad is null)
                 return Results.NotFound(new { error = $"Ad '{id}' not found." });
 
-            if (request.Name is not null) ad.Name = request.Name;
-            if (request.Hook is not null) ad.Hook = request.Hook;
-            if (request.PrimaryText is not null) ad.PrimaryText = request.PrimaryText;
-            if (request.CallToAction is not null) ad.CallToAction = request.CallToAction;
+            if (request.Name is not null) ad.Name = TextLimits.Cut(request.Name, TextLimits.Name)!;
+            if (request.Hook is not null) ad.Hook = TextLimits.Cut(request.Hook, TextLimits.ShortText)!;
+            if (request.PrimaryText is not null) ad.PrimaryText = TextLimits.Cut(request.PrimaryText, 1000)!;
+            if (request.CallToAction is not null) ad.CallToAction = TextLimits.Cut(request.CallToAction, 60)!;
             if (request.Palette is not null) ad.Palette = request.Palette;
             if (request.Status is not null) ad.Status = request.Status.Value;
+
+            if (request.FolderId is not null)
+            {
+                if (request.FolderId.Length == 0) ad.FolderId = null;
+                else if (store.GetFolder(request.FolderId, userContext.WorkspaceId) is null)
+                    return Results.BadRequest(new { error = "That folder doesn't exist any more." });
+                else ad.FolderId = request.FolderId;
+            }
+
+            if (request.VersionTag is not null)
+            {
+                if (request.VersionTag.Trim().Length == 0) ad.VersionTag = null;
+                else if (FolderEndpoints.CleanVersionTag(request.VersionTag) is { } tag) ad.VersionTag = tag;
+                else return Results.BadRequest(new { error = "Keep the version label short, like v2 (up to 12 characters)." });
+            }
 
             return Results.Ok(ad);
         });
@@ -139,6 +162,10 @@ public static class AdEndpoints
                 Video = source.Video,
                 Slides = source.Slides,
                 Score = source.Score,
+                MediaUrl = source.MediaUrl,
+                Model = source.Model,
+                ProductId = source.ProductId,
+                FolderId = source.FolderId,
                 CreatedAt = DateTimeOffset.UtcNow,
             });
 
@@ -149,6 +176,8 @@ public static class AdEndpoints
         group.MapPost("/{id}/refine", async (string id, RefineRequest request, HttpContext http, AppStore store,
             IUserContext userContext, RateLimitService limits, ImageEditRouter editor, CancellationToken cancellationToken) =>
         {
+            if (request.Instruction is { Length: > TextLimits.Instruction })
+                return Results.BadRequest(new { error = $"Keep the change under {TextLimits.Instruction} characters." });
             if (string.IsNullOrWhiteSpace(request.Instruction) || request.Instruction.Trim().Length < 3)
                 return Results.BadRequest(new { error = "Tell us what to change (at least a few words)." });
 

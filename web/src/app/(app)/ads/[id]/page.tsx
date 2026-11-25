@@ -8,6 +8,8 @@ import { toast } from "sonner";
 import {
   ArrowLeft,
   Copy,
+  FolderInput,
+  FolderMinus,
   Flame,
   Image as ImageIcon,
   Layers,
@@ -30,6 +32,9 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { ANALYZE_ENABLED } from "@/lib/features";
 import { cn } from "@/lib/utils";
+import { FolderDot, FolderMenuItems, NewFolderDialog, VersionTagPicker, useFolders, useMoveAd } from "@/components/folders/FolderParts";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { versionNumber } from "@/lib/folders";
 
 const SWATCHES = [
   ["#1A1A22", "#101014"],
@@ -56,6 +61,13 @@ export default function AdEditorPage({ params }: { params: Promise<{ id: string 
 
   const adQuery = useQuery({ queryKey: ["ad", id], queryFn: () => AdsApi.get(id) });
   const ad = adQuery.data;
+  const folders = useFolders();
+  const allAds = useQuery({ queryKey: ["ads"], queryFn: () => AdsApi.list() });
+  const move = useMoveAd();
+  const [newFolder, setNewFolder] = useState(false);
+  const folder = ad?.folderId ? folders.data?.find((f) => f.id === ad.folderId) : undefined;
+  const nextVersion =
+    Math.max(0, ...(allAds.data ?? []).filter((a) => a.folderId && a.folderId === ad?.folderId).map((a) => versionNumber(a.versionTag) ?? 0)) + 1;
 
   const [name, setName] = useState("");
   const [hook, setHook] = useState("");
@@ -159,6 +171,35 @@ export default function AdEditorPage({ params }: { params: Promise<{ id: string 
         <Badge variant="outline" className="border-border font-mono text-[9px] uppercase tracking-wider text-muted-foreground">
           {ad.creativeType} · {ad.aspectRatio}
         </Badge>
+        <VersionTagPicker ad={ad} nextVersion={nextVersion} />
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs">
+              {folder ? <FolderDot color={folder.color} /> : <FolderInput className="h-3.5 w-3.5" />}
+              <span className="max-w-[10rem] truncate">{folder ? folder.name : "Save to folder"}</span>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-56">
+            <FolderMenuItems
+              folders={folders.data ?? []}
+              currentId={ad.folderId}
+              onPick={(f) => f.id !== ad.folderId && move.mutate({ ad, folderId: f.id, folderName: f.name })}
+              onNew={() => setNewFolder(true)}
+            />
+            {folder && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => router.push(`/folders/${folder.id}`)}>
+                  <FolderInput className="mr-2 h-4 w-4" /> Open {folder.name}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => move.mutate({ ad, folderId: null })}>
+                  <FolderMinus className="mr-2 h-4 w-4" /> Remove from folder
+                </DropdownMenuItem>
+              </>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <NewFolderDialog open={newFolder} onOpenChange={setNewFolder} onCreated={(f) => move.mutate({ ad, folderId: f.id, folderName: f.name })} />
         <div className="ml-auto flex items-center gap-3">
           <label className="flex items-center gap-2 text-xs text-muted-foreground">
             <Switch checked={ready} onCheckedChange={mark(setReady)} aria-label="Ready status" />

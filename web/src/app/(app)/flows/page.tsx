@@ -17,6 +17,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { FlowComposerBox } from "@/components/flows/FlowComposerBox";
 
 /** A tiny left-to-right sketch of the flow's cards. */
 function FlowSketch({ flow }: { flow: FlowDoc }) {
@@ -136,7 +137,7 @@ export default function FlowsPage() {
             <span className="text-neon">Flows</span>
           </h1>
           <p className="mt-2 max-w-md text-sm text-muted-foreground">
-            Chain prompts into a pipeline — rebrand, stage, refine — and end with the images or videos you need. Run it on one photo, or on up to 10 at a time.
+            Make many ads at once. Describe them to AI below, or chain prompts by hand — rebrand, stage, refine — and run on one photo or up to 10 at a time.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -160,6 +161,11 @@ export default function FlowsPage() {
         </div>
       </div>
 
+      {/* Create with AI: one message → a flow with one output per image, ready to run */}
+      <FlowComposerBox />
+
+      {(flows.data?.length ?? 0) > 0 && <p className="eyebrow mt-10">Your flows</p>}
+
       {flows.isLoading ? (
         <div className="mt-8 space-y-2">
           {Array.from({ length: 4 }).map((_, i) => (
@@ -182,7 +188,7 @@ export default function FlowsPage() {
           </Button>
         </div>
       ) : (
-        <ul className="mt-8 space-y-2 pb-10">
+        <ul className="mt-3 space-y-2 pb-10">
           {flows.data!.map((f) => {
             const prompts = f.nodes.filter((n) => n.type === "prompt").length;
             const outs = f.nodes.filter((n) => n.type === "output").length;

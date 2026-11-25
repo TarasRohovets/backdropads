@@ -27,6 +27,33 @@ public class Flow
 
     /// <summary>Most recent run on several photos (one run per photo, queued); null until used.</summary>
     public FlowBatch? LastBatch { get; set; }
+
+    /// <summary>The flow's chat: what the user asked and what AI changed, oldest first.</summary>
+    public List<FlowChatTurn> Chat { get; set; } = [];
+
+    /// <summary>Saved states of the cards (v1 = how it started); each AI edit adds one, any can be restored.</summary>
+    public List<FlowVersion> Versions { get; set; } = [];
+}
+
+public class FlowChatTurn
+{
+    public string Id { get; set; } = "";
+    /// <summary>"user" | "assistant"</summary>
+    public string Role { get; set; } = "user";
+    public string Text { get; set; } = "";
+    /// <summary>The version this turn produced (assistant turns that changed the flow).</summary>
+    public int? Version { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
+}
+
+public class FlowVersion
+{
+    public int Version { get; set; }
+    /// <summary>What made it: the request, "Your edits", "Restored v1".</summary>
+    public string Note { get; set; } = "";
+    public DateTimeOffset CreatedAt { get; set; }
+    public List<FlowNode> Nodes { get; set; } = [];
+    public List<FlowEdge> Edges { get; set; } = [];
 }
 
 public class FlowNode
@@ -51,7 +78,7 @@ public class FlowStepData
     public string Kind { get; set; } = "prompt";
     public string Title { get; set; } = "";
 
-    // Prompt step
+    // Prompt step (also an output card's own prompt, used when no step is connected to it)
     public string? Prompt { get; set; }
     public List<FlowAttachment>? Attachments { get; set; }
     public bool? UsePrevious { get; set; }

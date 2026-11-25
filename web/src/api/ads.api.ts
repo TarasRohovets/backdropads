@@ -6,12 +6,15 @@ export interface AdFilters {
   creativeType?: CreativeType;
   status?: AdStatus;
   search?: string;
+  folderId?: string;
 }
 
 export interface SaveAdRequest {
   generationId: string;
   conceptId: string;
   name?: string;
+  /** save straight into this folder */
+  folderId?: string;
 }
 
 export interface UpdateAdRequest {
@@ -21,6 +24,10 @@ export interface UpdateAdRequest {
   callToAction?: string;
   palette?: string[];
   status?: AdStatus;
+  /** move to this folder; "" = out of its folder */
+  folderId?: string;
+  /** version label like "v2"; "" = clear */
+  versionTag?: string;
 }
 
 export const AdsApi = {

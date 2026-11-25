@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import {
   AlertTriangle,
   ArrowLeft,
+  ChevronDown,
   Copy,
   Download,
   Flame,
@@ -34,6 +35,9 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ANALYZE_ENABLED } from "@/lib/features";
 import { cn } from "@/lib/utils";
+import { FolderMenuItems, NewFolderDialog, useFolders } from "@/components/folders/FolderParts";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import type { Folder } from "@/models";
 
 const STAGES = [
   "Understanding your product…",
@@ -161,17 +165,23 @@ function ConceptCard({ versions, generation, index }: { versions: Concept[]; gen
 
   const [toDelete, setToDelete] = useState<CreationRef | null>(null);
 
+  const folders = useFolders();
+  const [newFolder, setNewFolder] = useState(false);
   const save = useMutation({
-    mutationFn: () =>
+    mutationFn: (folder?: Folder) =>
       AdsApi.save({
         generationId: generation.id,
         conceptId: concept.id,
         name: `${generation.brief.productName} — ${concept.hook.slice(0, 32)}`,
+        folderId: folder?.id,
       }),
-    onSuccess: (ad) => {
+    onSuccess: (ad, folder) => {
       qc.invalidateQueries({ queryKey: ["ads"] });
-      toast.success("Saved to My Ads", {
-        action: { label: "Open", onClick: () => router.push(`/ads/${ad.id}`) },
+      if (folder) qc.invalidateQueries({ queryKey: ["folders"] });
+      toast.success(folder ? `Saved to ${folder.name}` : "Saved to My Ads", {
+        action: folder
+          ? { label: "Open folder", onClick: () => router.push(`/folders/${folder.id}`) }
+          : { label: "Open", onClick: () => router.push(`/ads/${ad.id}`) },
       });
     },
     onError: () => toast.error("Couldn't save this concept."),
@@ -232,10 +242,24 @@ function ConceptCard({ versions, generation, index }: { versions: Concept[]; gen
       )}
 
       <div className="mt-4 flex flex-wrap items-center gap-1.5 border-t border-border/70 pt-3">
-        <Button size="sm" onClick={() => save.mutate()} disabled={save.isPending}>
-          {save.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Save className="mr-1.5 h-3.5 w-3.5" />}
-          Save
-        </Button>
+        <div className="flex">
+          <Button size="sm" className="rounded-r-none" onClick={() => save.mutate(undefined)} disabled={save.isPending}>
+            {save.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Save className="mr-1.5 h-3.5 w-3.5" />}
+            Save
+          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button size="sm" className="rounded-l-none border-l border-background/25 px-2" disabled={save.isPending} aria-label="Save to a folder">
+                <ChevronDown className="h-3.5 w-3.5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-56">
+              <DropdownMenuLabel className="text-xs">Save to folder</DropdownMenuLabel>
+              <FolderMenuItems folders={folders.data ?? []} onPick={(f) => save.mutate(f)} onNew={() => setNewFolder(true)} />
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <NewFolderDialog open={newFolder} onOpenChange={setNewFolder} onCreated={(f) => save.mutate(f)} />
+        </div>
         <Button
           size="sm"
           variant="ghost"

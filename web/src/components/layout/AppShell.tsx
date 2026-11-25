@@ -15,16 +15,18 @@ import {
   ImageUp,
   Menu,
   Palette,
+  ScrollText,
   Settings,
   Sparkles,
   WandSparkles,
   Workflow,
 } from "lucide-react";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ThemeToggle } from "./ThemeToggle";
 import { WorkspaceSwitcher } from "./WorkspaceSwitcher";
+import { SidebarFolders } from "@/components/folders/SidebarFolders";
 import { SystemApi } from "@/api/system.api";
 import { usd } from "@/lib/catalog";
 
@@ -41,6 +43,7 @@ const NAV: { section?: string; items: NavItem[] }[] = [
       { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
       { href: "/create", label: "Create", icon: WandSparkles, accent: "iris" },
       { href: "/flows", label: "Flows", icon: Workflow, accent: "iris" },
+      { href: "/prompts", label: "Prompts", icon: ScrollText },
     ],
   },
   {
@@ -97,7 +100,8 @@ function NavLinks({ pathname, onNavigate }: { pathname: string; onNavigate?: () 
   return (
     <nav className="flex flex-1 flex-col gap-5 overflow-y-auto scrollbar-thin px-3 py-5">
       {groups.map((group, gi) => (
-        <div key={gi} className="space-y-0.5">
+        <Fragment key={gi}>
+        <div className="space-y-0.5">
           {group.section && <p className="eyebrow mb-2 px-3">{group.section}</p>}
           {group.items.map((item) => {
             const active = isActive(pathname, item.href);
@@ -137,6 +141,8 @@ function NavLinks({ pathname, onNavigate }: { pathname: string; onNavigate?: () 
             );
           })}
         </div>
+        {group.section === "Library" && <SidebarFolders pathname={pathname} onNavigate={onNavigate} />}
+        </Fragment>
       ))}
     </nav>
   );

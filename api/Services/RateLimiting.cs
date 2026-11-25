@@ -15,6 +15,9 @@ public class RateLimitOptions
     public int RoastPerHour { get; set; } = 30;
     /// <summary>Analyze is free to users but not to us (~$0.01 vision call) — cap it per day too.</summary>
     public int RoastPerDay { get; set; } = 40;
+    /// <summary>Claude text work you ask for (Improve with AI, prompt sets, Create with AI, the flow chat): a cap on your own bill.</summary>
+    public int PromptPerHour { get; set; } = 60;
+    public int PromptPerDay { get; set; } = 500;
     public int MaxConcurrentImageGenerations { get; set; } = 2;
     public int MaxConcurrentVideoGenerations { get; set; } = 1;
     /// <summary>Image jobs talking to an AI provider at the same time. The rest queue.</summary>
@@ -42,6 +45,10 @@ public class RateLimitService(IOptions<RateLimitOptions> options)
 
     public bool TryAcquireRoast(string userId, out int retryAfterSeconds) =>
         TryAcquire($"{userId}:roast", Options.RoastPerHour, Options.RoastPerDay, out retryAfterSeconds);
+
+    /// <summary>Prompt rewrites: the plan's own hourly / daily caps, never above the server-wide ones in RateLimits.</summary>
+    public bool TryAcquirePrompt(string userId, int perHour, int perDay, out int retryAfterSeconds) =>
+        TryAcquire($"{userId}:prompt", Math.Min(perHour, Options.PromptPerHour), Math.Min(perDay, Options.PromptPerDay), out retryAfterSeconds);
 
     private bool TryAcquire(string key, int perHour, int? perDay, out int retryAfterSeconds)
     {

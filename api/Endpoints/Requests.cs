@@ -38,6 +38,9 @@ public class CreateAdRequest
     public string? GenerationId { get; set; }
     public string? ConceptId { get; set; }
     public string? Name { get; set; }
+
+    /// <summary>Optional: save it straight into this folder.</summary>
+    public string? FolderId { get; set; }
 }
 
 public class UpdateAdRequest
@@ -48,6 +51,21 @@ public class UpdateAdRequest
     public string? CallToAction { get; set; }
     public List<string>? Palette { get; set; }
     public AdStatus? Status { get; set; }
+
+    /// <summary>Move it to this folder; "" takes it out of its folder; null leaves it.</summary>
+    public string? FolderId { get; set; }
+
+    /// <summary>The version label shown on the card ("v2"); "" clears it; null leaves it.</summary>
+    public string? VersionTag { get; set; }
+}
+
+public class FolderRequest
+{
+    public string? Name { get; set; }
+
+    /// <summary>Create inside / move into this folder; "" = top level; null = top level on create, unchanged on update.</summary>
+    public string? ParentId { get; set; }
+    public string? Color { get; set; }
 }
 
 public class CreateRoastRequest
@@ -119,6 +137,33 @@ public class CreateFlowRequest
 }
 
 /// <summary>A flow file made by "Export" (steps, prompts and output settings; no photos or results).</summary>
+/// <summary>"Create with AI" in Flows: one message → a flow with one output card per image or video.</summary>
+public class ComposeFlowRequest
+{
+    public string? Message { get; set; }
+    /// <summary>Optional product photo (from the upload library) every output builds on.</summary>
+    public string? PhotoUrl { get; set; }
+    /// <summary>Several photos (from the upload library, max 6): each output builds on one, e.g. "edit these 3 photos…".</summary>
+    public List<string>? PhotoUrls { get; set; }
+    /// <summary>The Claude model that plans it (Sonnet by default; Opus or Fable when picked).</summary>
+    public string? TextModel { get; set; }
+}
+
+/// <summary>Saved prompts → a flow: a prompt group, or picked prompts (one output card each).</summary>
+public class FlowFromPromptsRequest
+{
+    public string? GroupId { get; set; }
+    public List<string>? PromptIds { get; set; }
+    public string? PhotoUrl { get; set; }
+}
+
+/// <summary>The chat inside a flow: what to change.</summary>
+public class FlowChatRequest
+{
+    public string? Message { get; set; }
+    public string? TextModel { get; set; }
+}
+
 public class ImportFlowRequest
 {
     public string? Format { get; set; }

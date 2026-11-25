@@ -9,6 +9,8 @@ import { AdsApi } from "@/api/ads.api";
 import { ProductsApi } from "@/api/products.api";
 import { PLATFORMS } from "@/lib/taxonomy";
 import { AdCard } from "@/components/shared/AdCard";
+import { useFolders } from "@/components/folders/FolderParts";
+import { flattenTree } from "@/lib/folders";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -30,6 +32,8 @@ function MyAdsContent() {
   const [status, setStatus] = useState<string>("all");
   const [product, setProduct] = useState<string>(params.get("productId") ?? "all");
   const [search, setSearch] = useState("");
+  const [folder, setFolder] = useState<string>("all");
+  const folders = useFolders();
 
   const ads = useQuery({ queryKey: ["ads"], queryFn: () => AdsApi.list() });
   const products = useQuery({ queryKey: ["products"], queryFn: () => ProductsApi.list() });
@@ -37,6 +41,8 @@ function MyAdsContent() {
   const filtered = useMemo(() => {
     let list = ads.data ?? [];
     if (product !== "all") list = list.filter((a) => a.productId === product);
+    if (folder === "none") list = list.filter((a) => !a.folderId);
+    else if (folder !== "all") list = list.filter((a) => a.folderId === folder);
     if (platform !== "all") list = list.filter((a) => a.platform === platform);
     if (type !== "all") list = list.filter((a) => a.creativeType === type);
     if (status !== "all") list = list.filter((a) => a.status === status);
@@ -45,7 +51,7 @@ function MyAdsContent() {
       list = list.filter((a) => a.name.toLowerCase().includes(q) || a.hook.toLowerCase().includes(q));
     }
     return list;
-  }, [ads.data, product, platform, type, status, search]);
+  }, [ads.data, product, platform, type, status, search, folder]);
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6">
@@ -92,6 +98,18 @@ function MyAdsContent() {
             ))}
           </SelectContent>
         </Select>
+        {(folders.data?.length ?? 0) > 0 && (
+          <Select value={folder} onValueChange={setFolder}>
+            <SelectTrigger className="w-44"><SelectValue placeholder="Folder" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All folders</SelectItem>
+              <SelectItem value="none">Not in a folder</SelectItem>
+              {flattenTree(folders.data!).map(({ folder: f, depth }) => (
+                <SelectItem key={f.id} value={f.id}>{"\u00a0\u00a0".repeat(depth)}{f.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
         {(products.data?.length ?? 0) > 0 && (
           <Select value={product} onValueChange={setProduct}>
             <SelectTrigger className="w-44"><SelectValue placeholder="Product" /></SelectTrigger>
@@ -128,7 +146,7 @@ function MyAdsContent() {
       ) : (
         <div className="mt-6 grid grid-cols-2 gap-4 pb-10 md:grid-cols-3 xl:grid-cols-4">
           {filtered.map((ad) => (
-            <AdCard key={ad.id} ad={ad} />
+            <AdCard key={ad.id} ad={ad} showFolder />
           ))}
         </div>
       )}

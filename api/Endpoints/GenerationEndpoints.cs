@@ -36,6 +36,9 @@ public static class GenerationEndpoints
                 if (string.IsNullOrWhiteSpace(request.Brief.ReferenceCreativeUrl)) request.Brief.ReferenceCreativeUrl = product.HeroImageUrl;
             }
 
+            // Long text never reaches a paid model: every field is cut to its limit here.
+            TextLimits.Apply(request.Brief);
+
             // Reference images: first one is the main photo, the rest follow in order (max 8, no duplicates).
             var references = new[] { request.Brief.ReferenceCreativeUrl }.Concat(request.Brief.ReferenceImageUrls ?? [])
                 .Where(u => !string.IsNullOrWhiteSpace(u)).Select(u => u!.Trim()).Distinct().Take(8).ToList();
@@ -112,6 +115,8 @@ public static class GenerationEndpoints
             HttpContext http, AppStore store, IUserContext userContext, RateLimitService limits,
             ImageEditRouter editor, CancellationToken cancellationToken) =>
         {
+            if (request.Instruction is { Length: > TextLimits.Instruction })
+                return Results.BadRequest(new { error = $"Keep the change under {TextLimits.Instruction} characters." });
             if (string.IsNullOrWhiteSpace(request.Instruction) || request.Instruction.Trim().Length < 3)
                 return Results.BadRequest(new { error = "Tell us what to change (at least a few words)." });
 

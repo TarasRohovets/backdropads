@@ -32,6 +32,13 @@ This repository is the whole app. One command starts it. There is no account to 
 
 - **Flows.** Chain steps written as plain sentences (clean backdrop, then headline, then format) into a
   pipeline that ends in images or videos. Start from one of the starter flows or from a blank one.
+- **Create with AI.** Say what you need in one message ("3 images of my candle: cosy at home, as a gift, 20% off")
+  and Claude builds the flow: one card per image, each with its own prompt. Check the plan and the estimated cost,
+  pick the image or video model, then generate them all.
+- **Edit several photos at once.** Add up to 6 product photos and say "edit these 3 photos: on marble, on a beach,
+  in a living room". Each card edits its own photo; Claude looks at the photos to write the edits.
+- **A chat inside every flow.** "Keep the 3 images, but add a cup of tea in each." Claude changes the cards in the
+  context of that flow. Every change is a version (v1 is how it started), and any version can be restored.
 - **Run on photos.** Pick up to 10 photos and the flow runs once for each, one after another. One flow, a whole
   set of ads.
 - **Made for the platform.** Tell an output where the ad will run (Instagram, Facebook, TikTok, YouTube,
@@ -50,6 +57,11 @@ This repository is the whole app. One command starts it. There is no account to 
 - **Upload library.** Every photo, PDF and text file you upload stays available for the next ad. PDFs and text
   are read by Claude first, so only the relevant facts reach the image or video prompt.
 - **Refine with a sentence.** "Make the background darker." Every version is kept.
+- **Prompts.** Write a rough idea and "Improve with AI" rewrites it the way image and video models follow best. Or
+  ask for a set ("I need 3 photos: x, y, z") written for the model you pick, then generate the whole set in a flow or
+  use one prompt in Create. Save the prompts that work. Pick Claude Sonnet, Opus or Fable for the writing.
+- **Folders and versions.** Sort saved ads into folders (and folders inside folders), and label versions (v1, v2…)
+  right on the ad card.
 - **Brand kits and workspaces.** One workspace per brand, project or client, each with its own colors, voice and ads.
 - **Know what you spend.** Usage and estimated cost for the last 7 and 30 days, per model.
 - **Easy on a small machine.** AI jobs go through a queue (2 images and 1 video at a time by default), so a

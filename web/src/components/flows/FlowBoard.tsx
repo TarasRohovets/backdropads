@@ -24,7 +24,7 @@ import {
 import { useTheme } from "next-themes";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { AlertCircle, ArrowLeft, Check, Copy, Image as ImageIcon, Loader2, MessageSquarePlus, Play, RotateCcw } from "lucide-react";
+import { AlertCircle, ArrowLeft, Check, Copy, Image as ImageIcon, Loader2, MessageSquare, MessageSquarePlus, Play, RotateCcw } from "lucide-react";
 import {
   applyRun,
   estimateCost,
@@ -34,7 +34,9 @@ import {
   runOrder,
   toSavable,
   uid,
+  type FlowChatTurn,
   type FlowDoc,
+  type FlowVersion,
   type FlowNode,
   type FlowBatch,
   type FlowRun,
@@ -49,6 +51,9 @@ import { FlowActions, nodeTypes } from "./FlowNodes";
 import { FlowInspector } from "./FlowInspector";
 import { BatchRunButton } from "./BatchRun";
 import { FlowResults } from "./FlowResults";
+import { FlowChatPanel } from "./FlowChatPanel";
+import { ModelPicker } from "@/components/create/ModelPicker";
+import { findModel } from "@/lib/catalog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -95,6 +100,17 @@ function freeSpot(start: { x: number; y: number }, nodes: RFNode[]) {
   return p;
 }
 
+/** The cards' words and settings (not positions): equal shapes = the board shows that version. */
+function shapeOf(nodes: FlowNode[], edges: { source: string; target: string }[]) {
+  return JSON.stringify({
+    n: nodes.map((n) => {
+      const d = n.data as unknown as Record<string, unknown>;
+      return [n.id, n.type, d.title ?? "", d.prompt ?? "", d.mode ?? null, d.ratio ?? null, d.count ?? null, d.model ?? null, d.quality ?? null];
+    }),
+    e: edges.map((e) => `${e.source}>${e.target}`).sort(),
+  });
+}
+
 function Board({ flow }: { flow: FlowDoc }) {
   const router = useRouter();
   const qc = useQueryClient();
@@ -112,6 +128,10 @@ function Board({ flow }: { flow: FlowDoc }) {
   // Arrived from a ready-made style (?photos=1): the photo picker opens straight away.
   const [pickPhotos] = useState(() => typeof window !== "undefined" && new URLSearchParams(window.location.search).get("photos") === "1");
   const [saveState, setSaveState] = useState<SaveState>("saved");
+  // The chat inside the flow (open by default on wide screens) and its versions.
+  const [chat, setChat] = useState<FlowChatTurn[]>(flow.chat ?? []);
+  const [versions, setVersions] = useState<FlowVersion[]>(flow.versions ?? []);
+  const [chatOpen, setChatOpen] = useState(() => typeof window === "undefined" || window.innerWidth >= 1024);
   const [copying, setCopying] = useState(false);
   const running = run?.status === "running";
 
@@ -169,6 +189,7 @@ function Board({ flow }: { flow: FlowDoc }) {
         if (cancelled) return;
         setNodes((ns) => applyRun(ns.map(fromRF), next).map((n) => ({ ...toRF(n), selected: ns.find((x) => x.id === n.id)?.selected })));
         if (next.status === "running") {
+          setRun(next); // same id and status: the effect keeps polling; the results tray fills in as cards finish
           setTimeout(tick, 800);
         } else {
           setRun(next);
@@ -235,7 +256,7 @@ function Board({ flow }: { flow: FlowDoc }) {
           return [...rest, ...rewired, { id: uid("e"), source: anchor.id, target: node.id, ...edgeDefaults }];
         });
         // Re-frame so the shifted chain stays on screen.
-        setTimeout(() => rf.fitView({ padding: 0.3, maxZoom: 1, duration: 300 }), 60);
+        setTimeout(() => rf.fitView({ padding: 0.3, maxZoom: 1, duration: 300 }), 220);
       }
       setSelectedId(node.id);
     },
@@ -269,6 +290,57 @@ function Board({ flow }: { flow: FlowDoc }) {
     setNodes((ns) => [...ns.map((x) => ({ ...x, selected: false })), copy]);
     setSelectedId(copy.id);
   };
+
+  // ---- chat edits & restores come back as a new flow: show it, and don't save it straight back ----------
+  const replaceFromServer = useCallback(
+    (next: FlowDoc) => {
+      const fresh = applyRun(next.nodes.map(normalizeNode), run).map(toRF);
+      setNodes(fresh);
+      setEdges(next.edges.map((e) => ({ ...e, ...edgeDefaults })));
+      setName(next.name);
+      setChat(next.chat ?? []);
+      setVersions(next.versions ?? []);
+      setSelectedId(null);
+      lastSaved.current = JSON.stringify({
+        name: next.name.trim() || "Untitled flow",
+        nodes: fresh.map((n) => toSavable(fromRF(n))),
+        edges: next.edges.map((e) => ({ id: e.id, source: e.source, target: e.target })),
+      });
+      setSaveState("saved");
+      setTimeout(() => rf.fitView({ padding: 0.3, maxZoom: 1, duration: 300 }), 220);
+    },
+    [run, rf, setEdges, setNodes]
+  );
+  // Re-frame the cards whenever the canvas changes size (chat opened or closed, window resized).
+  const canvasRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = canvasRef.current;
+    if (!el) return;
+    let t: ReturnType<typeof setTimeout> | undefined;
+    let width = el.clientWidth;
+    const ro = new ResizeObserver(() => {
+      if (Math.abs(el.clientWidth - width) < 24) return;
+      width = el.clientWidth;
+      clearTimeout(t);
+      t = setTimeout(() => rf.fitView({ padding: 0.25, maxZoom: 1, duration: 250 }), 120);
+    });
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+      clearTimeout(t);
+    };
+  }, [rf]);
+  const lastVersion = versions[versions.length - 1];
+  const currentVersion =
+    lastVersion && shapeOf(nodes.map(fromRF), edges) === shapeOf(lastVersion.nodes.map(normalizeNode), lastVersion.edges) ? lastVersion.version : null;
+
+  // One model for every output card (the most common kind on the board).
+  const outputsNow = nodes.filter((n) => n.type === "output");
+  const mainMode: "image" | "video" =
+    outputsNow.filter((n) => n.data.mode === "video").length > outputsNow.length / 2 ? "video" : "image";
+  const mainModel = findModel(catalog.models, mainMode, String(outputsNow.find((n) => n.data.mode === mainMode)?.data.model ?? ""));
+  const setModelForAll = (id: string) =>
+    setNodes((ns) => ns.map((n) => (n.type === "output" && n.data.mode === mainMode ? { ...n, data: { ...n.data, model: id } } : n)));
 
   // ---- run on the server -----------------------------------------------------------------
   const cost = estimateCost(nodes.map(fromRF), catalog);
@@ -353,7 +425,21 @@ function Board({ flow }: { flow: FlowDoc }) {
             )}
           </span>
 
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            <Button variant={chatOpen ? "secondary" : "outline"} size="sm" onClick={() => setChatOpen((o) => !o)}>
+              <MessageSquare className="h-4 w-4" /> Chat
+            </Button>
+            {outputsNow.length > 1 && (
+              <ModelPicker
+                models={catalog.models[mainMode]}
+                value={mainModel}
+                quality="standard"
+                onChange={(m) => setModelForAll(m.id)}
+                defaultId={mainModel.id}
+                align="end"
+                triggerClassName="inline-flex h-9 items-center gap-1.5 rounded-md border border-input bg-background px-3 text-xs font-semibold hover:bg-accent disabled:opacity-50"
+              />
+            )}
             <Button variant="outline" size="sm" onClick={() => addNode("prompt")} disabled={running}>
               <MessageSquarePlus className="h-4 w-4" /> Prompt
             </Button>
@@ -388,8 +474,21 @@ function Board({ flow }: { flow: FlowDoc }) {
           </div>
         </div>
 
-        {/* Canvas */}
-        <div className="relative flex-1">
+        {/* Chat column (wide screens) + canvas */}
+        <div className="relative flex min-h-0 flex-1">
+          {chatOpen && (
+            <FlowChatPanel
+              flowId={flow.id}
+              chat={chat}
+              versions={versions}
+              current={currentVersion}
+              disabled={running || batchRunning}
+              beforeSend={save}
+              onUpdated={replaceFromServer}
+              onClose={() => setChatOpen(false)}
+            />
+          )}
+        <div ref={canvasRef} className="relative min-w-0 flex-1">
           <ReactFlow
             nodes={nodes}
             edges={edges}
@@ -415,14 +514,14 @@ function Board({ flow }: { flow: FlowDoc }) {
           >
             <Background variant={BackgroundVariant.Dots} gap={22} size={1.4} color="hsl(var(--foreground) / 0.14)" />
             <Controls showInteractive={false} position="bottom-left" />
-            <MiniMap
+            {!chatOpen && <MiniMap
               position="bottom-right"
               pannable
               zoomable
               nodeColor={(n) => (n.type === "output" ? "hsl(80 100% 62%)" : "hsl(258 95% 68%)")}
               maskColor="hsl(var(--background) / 0.7)"
               style={{ right: selected ? 440 : 12 }}
-            />
+            />}
           </ReactFlow>
 
           {nodes.length === 0 && (
@@ -445,6 +544,7 @@ function Board({ flow }: { flow: FlowDoc }) {
               onDuplicate={() => duplicateNode(selected.id)}
             />
           )}
+        </div>
         </div>
 
         {/* Results: every ad this flow has produced, under the board */}

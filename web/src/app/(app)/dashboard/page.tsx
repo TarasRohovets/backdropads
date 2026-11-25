@@ -6,6 +6,7 @@ import { ArrowRight, LibraryBig, Link2, Workflow } from "lucide-react";
 import { RecentCreations } from "@/components/shared/RecentCreations";
 import { PromptComposer } from "@/components/create/PromptComposer";
 import { StarterStyles } from "@/components/flows/StarterStyles";
+import { MassGenerationBanner } from "@/components/flows/MassGenerationBanner";
 import { Button } from "@/components/ui/button";
 
 const fadeUp = {
@@ -34,6 +35,8 @@ export default function DashboardPage() {
       </motion.div>
 
       <motion.div {...fadeUp} transition={{ duration: 0.45, delay: 0.08 }} className="mx-auto mt-8 max-w-3xl">
+        {/* Many ads at once → Flows */}
+        <MassGenerationBanner />
         <PromptComposer />
       </motion.div>
 

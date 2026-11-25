@@ -97,6 +97,8 @@ public static class FlowFiles
         {
             Kind = "output",
             Title = Short(data.Title, "Output"),
+            Prompt = string.IsNullOrWhiteSpace(data.Prompt) ? null : data.Prompt,
+            Attachments = [], // photos stay with their owner
             Mode = isVideo ? "video" : "image",
             Ratio = targetRatio ?? (ratios.Contains(data.Ratio ?? "") ? data.Ratio : isVideo ? "9:16" : "4:5"),
             Platform = platform,

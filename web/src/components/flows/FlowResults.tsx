@@ -129,22 +129,34 @@ export function FlowResults({
     refetchInterval: 2500,
   });
 
-  const runTiles = run?.status === "running" ? [] : tilesOf(run, nodes, "run");
+  const live = run?.status === "running";
+  const runTiles = tilesOf(run, nodes, "run");
+  // While a run is going: a slot for every card that hasn't finished yet.
+  const waiting = live
+    ? nodes
+        .filter((n) => n.type === "output")
+        .map((n) => ({ node: n, step: run!.steps.find((s) => s.nodeId === n.id) }))
+        .filter(({ step }) => step?.status !== "done")
+    : [];
+  const doneOutputs = live ? run!.steps.filter((s) => s.status === "done" && nodes.find((n) => n.id === s.nodeId)?.type === "output").length : 0;
+  const outputCount = nodes.filter((n) => n.type === "output").length;
   const items = batch?.items ?? [];
   const batchTiles = items.flatMap((item, i) => tilesOf(item.run, nodes, `photo${i}`));
   const total = runTiles.length + batchTiles.length;
   const finished = items.filter((i) => i.status === "done" || i.status === "failed").length;
   const failed = items.filter((i) => i.status === "failed").length;
-  if (!batch && total === 0) return null;
+  const empty = !batch && total === 0 && !live;
 
   return (
-    <div className="border-t border-border bg-card/60 backdrop-blur-md">
+    <div className="shrink-0 border-t border-border bg-card/80 backdrop-blur-md">
       <div className="flex items-center gap-3 px-4 py-2.5">
-        {batchRunning ? <Loader2 className="h-4 w-4 animate-spin text-iris" /> : <Check className="h-4 w-4 text-mint" />}
+        {batchRunning || live ? <Loader2 className="h-4 w-4 animate-spin text-iris" /> : empty ? <Clock className="h-4 w-4 text-muted-foreground" /> : <Check className="h-4 w-4 text-mint" />}
         <p className="min-w-0 flex-1 truncate text-sm font-semibold">
-          Results
+          {live ? "Generating" : "Results"}
           <span className="font-normal text-muted-foreground">
-            {" "}· {total} ad{total === 1 ? "" : "s"}
+            {live && ` · ${doneOutputs} of ${outputCount} cards done`}
+            {!live && !empty && ` · ${total} ad${total === 1 ? "" : "s"}`}
+            {empty && " · run the flow and your ads land here"}
             {batch && (batchRunning ? ` · ${finished} of ${items.length} photos finished` : ` · ${items.length - failed} of ${items.length} photos`)}
             {failed > 0 && !batchRunning && ` · ${failed} failed`}
           </span>
@@ -160,11 +172,33 @@ export function FlowResults({
       </div>
 
       {open && (
-        <div className="flex items-stretch gap-4 overflow-x-auto px-4 pb-3 scrollbar-thin">
-          {runTiles.length > 0 && (
+        <div className="flex h-[176px] items-stretch gap-4 overflow-x-auto px-4 pb-3 scrollbar-thin">
+          {empty && (
+            <div className="flex h-36 w-full items-center justify-center rounded-xl border border-dashed border-border text-xs text-muted-foreground">
+              Nothing yet — press Run flow. Each card's ads appear here as soon as they're ready.
+            </div>
+          )}
+          {(runTiles.length > 0 || waiting.length > 0) && (
             <div className="flex shrink-0 flex-col gap-1.5">
-              <p className="text-[11px] font-semibold text-muted-foreground">Last run</p>
-              <div className="flex gap-2">{runTiles.map((t) => <ResultTile key={t.key} tile={t} />)}</div>
+              <p className="text-[11px] font-semibold text-muted-foreground">{live ? "This run" : "Last run"}</p>
+              <div className="flex gap-2">
+                {runTiles.map((t) => <ResultTile key={t.key} tile={t} />)}
+                {waiting.map(({ node, step }) => (
+                  <div key={`wait-${node.id}`} className="relative flex h-36 w-28 shrink-0 flex-col items-center justify-center gap-1.5 overflow-hidden rounded-xl border border-dashed border-border px-2 text-center">
+                    {step?.status === "running" ? (
+                      <>
+                        <div className="absolute inset-0 bg-[linear-gradient(110deg,transparent_30%,hsl(var(--primary)/0.12)_50%,transparent_70%)] bg-[length:400px_100%] animate-shimmer" />
+                        <Loader2 className="h-4 w-4 animate-spin text-iris" />
+                      </>
+                    ) : step?.status === "failed" ? (
+                      <AlertCircle className="h-4 w-4 text-destructive" />
+                    ) : (
+                      <Clock className="h-4 w-4 text-muted-foreground" />
+                    )}
+                    <span className="line-clamp-2 text-[11px] text-muted-foreground">{String((node.data as OutputStepData).title || "Output")}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
           {items.map((item, i) => {

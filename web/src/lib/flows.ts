@@ -50,6 +50,10 @@ export interface OutputStepData extends RunFields {
   model: string;
   /** video outputs: clip length in seconds */
   durationSeconds?: number | null;
+  /** what to make when no step is connected to this card (cards made by "Create with AI") */
+  prompt?: string;
+  /** a product photo this card builds on when no step is connected */
+  attachments?: FlowAttachment[];
   resultSeeds?: string[];
   resultUrls?: (string | null)[];
   generationId?: string | null;
@@ -103,6 +107,28 @@ export interface FlowDoc {
   updatedAt: string;
   lastRun?: FlowRun | null;
   lastBatch?: FlowBatch | null;
+  /** the flow's chat (loaded with the flow, not in the list) */
+  chat?: FlowChatTurn[];
+  /** saved states of the cards; v1 = how it started */
+  versions?: FlowVersion[];
+}
+
+export interface FlowChatTurn {
+  id: string;
+  role: "user" | "assistant";
+  text: string;
+  /** the version this turn produced */
+  version?: number | null;
+  createdAt: string;
+}
+
+export interface FlowVersion {
+  version: number;
+  /** the request that made it, "Your edits", "Restored v1" */
+  note: string;
+  createdAt: string;
+  nodes: FlowNode[];
+  edges: FlowEdge[];
 }
 
 /** A starter flow a new flow can begin from. */
@@ -177,6 +203,8 @@ export function normalizeNode(n: FlowNode): FlowNode {
         durationSeconds: d.durationSeconds == null ? null : Number(d.durationSeconds),
         platform: d.platform && d.placement ? String(d.platform) : null,
         placement: d.platform && d.placement ? String(d.placement) : null,
+        prompt: d.prompt ? String(d.prompt) : "",
+        attachments: (d.attachments as FlowAttachment[] | undefined) ?? [],
       },
     };
   }
@@ -196,8 +224,8 @@ export function normalizeNode(n: FlowNode): FlowNode {
 export function toSavable(n: FlowNode): FlowNode {
   const d = n.data;
   if (d.kind === "output") {
-    const { kind, title, mode, ratio, count, quality, brandKitId, model, durationSeconds, platform, placement } = d;
-    return { id: n.id, type: n.type, position: n.position, data: { kind, title, mode, ratio, count, quality, brandKitId, model, durationSeconds, platform: platform ?? null, placement: placement ?? null } };
+    const { kind, title, mode, ratio, count, quality, brandKitId, model, durationSeconds, platform, placement, prompt, attachments } = d;
+    return { id: n.id, type: n.type, position: n.position, data: { kind, title, mode, ratio, count, quality, brandKitId, model, durationSeconds, platform: platform ?? null, placement: placement ?? null, prompt: prompt ?? "", attachments: attachments ?? [] } };
   }
   const { kind, title, prompt, attachments, usePrevious } = d;
   return { id: n.id, type: n.type, position: n.position, data: { kind, title, prompt, attachments, usePrevious } };
@@ -262,7 +290,7 @@ export const toFlowFile = (flow: FlowDoc): FlowFile => ({
   format: "backdropads-flow",
   version: 1,
   name: flow.name,
-  nodes: flow.nodes.map((n) => ({ ...n, data: n.type === "prompt" ? { ...n.data, attachments: [] } : n.data }) as FlowNode),
+  nodes: flow.nodes.map((n) => ({ ...n, data: { ...n.data, attachments: [] } }) as FlowNode),
   edges: flow.edges,
 });
 

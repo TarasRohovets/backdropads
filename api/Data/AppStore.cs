@@ -153,6 +153,8 @@ public sealed partial class AppStore(
 
     public Generation AddGeneration(Generation generation)
     {
+        // Every way in (Create, flows, templates) is cut to the text limits before any AI sees it.
+        TextLimits.Apply(generation.Brief);
         WriteGeneration(generation); // pollers (other requests, the flow runner) see it right away
         return Retrack(generation, generation.Id, WriteGeneration);
     }
@@ -441,6 +443,125 @@ public sealed partial class AppStore(
         return Db.Execute("DELETE FROM backdropads.workspaces WHERE id = @id AND owner_id = @ownerId", new { id, ownerId }) > 0;
     }
 
+    // ---- Folders (organise saved ads) -----------------------------------------
+
+    /// <summary>The workspace's folders in order; the first call ever also creates the starter set.</summary>
+    public List<Folder> ListFolders(string workspaceId, string userId)
+    {
+        // Claim the one-time seeding atomically, so two first requests can't both add the starter folders.
+        if (Db.Execute("UPDATE backdropads.workspaces SET folders_seeded = TRUE WHERE id = @workspaceId AND NOT folders_seeded", new { workspaceId }) == 1)
+        {
+            var now = DateTimeOffset.UtcNow;
+            var i = 0;
+            foreach (var (name, color) in FolderColors.Starter)
+                InsertFolder(new Folder { Id = Ids.New("fld"), WorkspaceId = workspaceId, UserId = userId, Name = name, Color = color, Position = i++, CreatedAt = now });
+        }
+        return [.. Db.Query<Folder>("SELECT * FROM backdropads.folders WHERE workspace_id = @workspaceId ORDER BY position, created_at", new { workspaceId })];
+    }
+
+    public Folder? GetFolder(string id, string workspaceId) =>
+        Db.QuerySingleOrDefault<Folder>("SELECT * FROM backdropads.folders WHERE id = @id AND workspace_id = @workspaceId", new { id, workspaceId });
+
+    public Folder AddFolder(string workspaceId, string userId, string? parentId, string name, string color)
+    {
+        var position = Db.ExecuteScalar<int>("SELECT COALESCE(MAX(position) + 1, 0) FROM backdropads.folders WHERE workspace_id = @workspaceId", new { workspaceId });
+        var folder = new Folder { Id = Ids.New("fld"), WorkspaceId = workspaceId, UserId = userId, ParentId = parentId, Name = name, Color = color, Position = position, CreatedAt = DateTimeOffset.UtcNow };
+        InsertFolder(folder);
+        return folder;
+    }
+
+    private void InsertFolder(Folder f) => Db.Execute("""
+        INSERT INTO backdropads.folders (id, workspace_id, user_id, parent_id, name, color, position, created_at)
+        VALUES (@Id, @WorkspaceId, @UserId, @ParentId, @Name, @Color, @Position, @CreatedAt)
+        """, f);
+
+    public void UpdateFolder(Folder f) =>
+        Db.Execute("UPDATE backdropads.folders SET name = @Name, color = @Color, parent_id = @ParentId WHERE id = @Id AND workspace_id = @WorkspaceId", f);
+
+    /// <summary>Deletes the folder and its subfolders (ON DELETE CASCADE); their ads stay in My Ads, without a folder.</summary>
+    public bool RemoveFolder(string id, string workspaceId)
+    {
+        var removed = Db.Query<string>("""
+            WITH RECURSIVE branch AS (
+                SELECT id FROM backdropads.folders WHERE id = @id AND workspace_id = @workspaceId
+                UNION ALL
+                SELECT f.id FROM backdropads.folders f JOIN branch b ON f.parent_id = b.id
+            ) SELECT id FROM branch
+            """, new { id, workspaceId }).ToHashSet();
+        if (removed.Count == 0) return false;
+        Db.Execute("DELETE FROM backdropads.folders WHERE id = @id AND workspace_id = @workspaceId", new { id, workspaceId });
+        foreach (var ad in ListAds(workspaceId).Where(a => a.FolderId is not null && removed.Contains(a.FolderId))) ad.FolderId = null;
+        return true;
+    }
+
+    // ---- Saved prompts -------------------------------------------------------
+
+    /// <summary>Most recently used (or edited) first.</summary>
+    public List<SavedPrompt> ListPrompts(string workspaceId) =>
+        [.. Db.Query<SavedPrompt>("""
+            SELECT * FROM backdropads.prompts WHERE workspace_id = @workspaceId
+            ORDER BY GREATEST(updated_at, COALESCE(last_used_at, updated_at)) DESC
+            """, new { workspaceId })];
+
+    public SavedPrompt? GetPrompt(string id, string workspaceId) =>
+        Db.QuerySingleOrDefault<SavedPrompt>("SELECT * FROM backdropads.prompts WHERE id = @id AND workspace_id = @workspaceId", new { id, workspaceId });
+
+    public int CountPrompts(string workspaceId) =>
+        Db.ExecuteScalar<int>("SELECT COUNT(*) FROM backdropads.prompts WHERE workspace_id = @workspaceId", new { workspaceId });
+
+    public SavedPrompt AddPrompt(SavedPrompt p)
+    {
+        Db.Execute("""
+            INSERT INTO backdropads.prompts (id, workspace_id, user_id, title, text, kind, target_model, group_id, position, use_count, last_used_at, created_at, updated_at)
+            VALUES (@Id, @WorkspaceId, @UserId, @Title, @Text, @Kind, @TargetModel, @GroupId, @Position, @UseCount, @LastUsedAt, @CreatedAt, @UpdatedAt)
+            """, p);
+        return p;
+    }
+
+    public void UpdatePrompt(SavedPrompt p) => Db.Execute("""
+        UPDATE backdropads.prompts SET title = @Title, text = @Text, kind = @Kind, updated_at = @UpdatedAt
+        WHERE id = @Id AND workspace_id = @WorkspaceId
+        """, p);
+
+    /// <summary>Counts a use (inserted into Create), returning the prompt, or null when it doesn't exist.</summary>
+    public SavedPrompt? MarkPromptUsed(string id, string workspaceId) =>
+        Db.QuerySingleOrDefault<SavedPrompt>("""
+            UPDATE backdropads.prompts SET use_count = use_count + 1, last_used_at = now()
+            WHERE id = @id AND workspace_id = @workspaceId RETURNING *
+            """, new { id, workspaceId });
+
+    public bool RemovePrompt(string id, string workspaceId) =>
+        Db.Execute("DELETE FROM backdropads.prompts WHERE id = @id AND workspace_id = @workspaceId", new { id, workspaceId }) > 0;
+
+    // Prompt groups: prompts written together from one message.
+
+    public List<PromptGroup> ListPromptGroups(string workspaceId) =>
+        [.. Db.Query<PromptGroup>("SELECT * FROM backdropads.prompt_groups WHERE workspace_id = @workspaceId ORDER BY created_at DESC", new { workspaceId })];
+
+    public PromptGroup? GetPromptGroup(string id, string workspaceId) =>
+        Db.QuerySingleOrDefault<PromptGroup>("SELECT * FROM backdropads.prompt_groups WHERE id = @id AND workspace_id = @workspaceId", new { id, workspaceId });
+
+    /// <summary>The group's prompts in order.</summary>
+    public List<SavedPrompt> ListGroupPrompts(string groupId, string workspaceId) =>
+        [.. Db.Query<SavedPrompt>("SELECT * FROM backdropads.prompts WHERE group_id = @groupId AND workspace_id = @workspaceId ORDER BY position, created_at", new { groupId, workspaceId })];
+
+    /// <summary>Saves the group, then its prompts.</summary>
+    public void AddPromptGroup(PromptGroup group, IReadOnlyList<SavedPrompt> prompts)
+    {
+        Db.Execute("""
+            INSERT INTO backdropads.prompt_groups (id, workspace_id, user_id, name, kind, ratio, target_model, message, created_at)
+            VALUES (@Id, @WorkspaceId, @UserId, @Name, @Kind, @Ratio, @TargetModel, @Message, @CreatedAt)
+            """, group);
+        foreach (var p in prompts) AddPrompt(p);
+    }
+
+    public bool RenamePromptGroup(string id, string workspaceId, string name) =>
+        Db.Execute("UPDATE backdropads.prompt_groups SET name = @name WHERE id = @id AND workspace_id = @workspaceId", new { id, workspaceId, name }) > 0;
+
+    /// <summary>Deletes the group and its prompts (ON DELETE CASCADE).</summary>
+    public bool RemovePromptGroup(string id, string workspaceId) =>
+        Db.Execute("DELETE FROM backdropads.prompt_groups WHERE id = @id AND workspace_id = @workspaceId", new { id, workspaceId }) > 0;
+
     // ---- Uploads (the user's file library) ------------------------------------
 
     public Upload AddUpload(Upload upload)
@@ -475,11 +596,11 @@ public sealed partial class AppStore(
 
     private static string KitKey(string workspaceId, string kitId) => $"{workspaceId}:{kitId}";
 
-    private Action<BrandKit> KitWriter(string workspaceId, string kitId) => kit => Db.Execute("""
+    private Action<BrandKit> KitWriter(string workspaceId, string kitId) => kit => { TextLimits.Apply(kit); Db.Execute("""
         INSERT INTO backdropads.brand_kits (workspace_id, kit_id, created_at, data)
         VALUES (@workspaceId, @kitId, @now, CAST(@data AS jsonb))
         ON CONFLICT (workspace_id, kit_id) DO UPDATE SET data = excluded.data
-        """, new { workspaceId, kitId, now = DateTimeOffset.UtcNow, data = JsonColumns.Serialize(kit) });
+        """, new { workspaceId, kitId, now = DateTimeOffset.UtcNow, data = JsonColumns.Serialize(kit) }); };
 
     private BrandKit? LoadKit(string workspaceId, string kitId) =>
         Cached<BrandKit>(KitKey(workspaceId, kitId))

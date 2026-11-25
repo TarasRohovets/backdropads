@@ -242,6 +242,34 @@ export function FlowInspector({ node, stepNumber, onChange, onClose, onSave, onD
         ) : (
           <>
             <div>
+              <Label htmlFor="outputPrompt">What to make</Label>
+              <textarea
+                id="outputPrompt"
+                value={node.data.prompt ?? ""}
+                maxLength={4000}
+                onChange={(e) => onChange({ prompt: e.target.value })}
+                placeholder="Optional. Used when no step is connected to this card: describe the image or video to make."
+                className="mt-1.5 min-h-[120px] w-full resize-y rounded-xl border border-input bg-background/60 px-4 py-3 text-sm leading-relaxed outline-none transition-colors placeholder:text-muted-foreground/70 focus:border-iris"
+              />
+              <p className="mt-1 text-[11px] text-muted-foreground">Connected to a step? The step's result and prompts are used instead.</p>
+              {(node.data.attachments ?? []).filter((a) => a.url).map((a) => (
+                <div key={a.id} className="mt-2 flex items-center gap-3 rounded-xl border border-border bg-background/50 px-3 py-2">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={a.url!} alt="" className="h-9 w-9 rounded-lg object-cover" />
+                  <span className="min-w-0 flex-1 truncate text-xs font-semibold">{a.name}</span>
+                  <button
+                    type="button"
+                    onClick={() => onChange({ attachments: ((node.data as OutputStepData).attachments ?? []).filter((x) => x.id !== a.id) })}
+                    className="rounded-full p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground"
+                    aria-label={`Remove ${a.name}`}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            <div>
               <Label>Output type</Label>
               <div className="mt-1.5">
                 <Segmented

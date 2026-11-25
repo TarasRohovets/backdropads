@@ -40,6 +40,7 @@ export function RefineBox({
   return (
     <form onSubmit={submit} className={cn("flex items-center gap-1.5", className)}>
       <Input
+        maxLength={500}
         value={value}
         onChange={(e) => setValue(e.target.value)}
         placeholder={hint}

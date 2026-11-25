@@ -143,6 +143,17 @@ export function OutputNode({ data, selected }: NodeProps) {
         <StatusDot status={d.status} />
       </div>
 
+      {/* A card made by "Create with AI" carries its own prompt (and product photo). */}
+      {d.prompt && (
+        <div className="mt-2.5 flex gap-2">
+          {d.attachments?.[0]?.url && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={d.attachments[0].url} alt="" className="h-9 w-9 shrink-0 rounded-lg object-cover" />
+          )}
+          <p className="line-clamp-3 text-[11px] leading-snug text-muted-foreground">{d.prompt}</p>
+        </div>
+      )}
+
       <div className={cn("mt-3 grid gap-1.5", tiles.length > 1 ? "grid-cols-2" : "grid-cols-1")}>
         {tiles.map((_, i) => {
           const seed = d.resultSeeds?.[i];

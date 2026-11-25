@@ -34,7 +34,8 @@ public class FlowRunner(
         if (emptySteps > 0)
             return new([], 0, false, emptySteps == 1 ? "One step has no prompt yet." : $"{emptySteps} steps have no prompt yet.");
 
-        var orphanOutputs = outputs.Count(o => !flow.Edges.Any(e => e.Target == o.Id));
+        // An output card with its own prompt stands alone; one without needs a step to feed it.
+        var orphanOutputs = outputs.Count(o => !flow.Edges.Any(e => e.Target == o.Id) && string.IsNullOrWhiteSpace(o.Data.Prompt));
         if (orphanOutputs > 0 && flow.Nodes.Any(n => n.Type == "prompt"))
             return new([], 0, false, "Connect every output card to a step.");
 
@@ -364,7 +365,7 @@ public class FlowRunner(
                 Placement = Placement.Feed,
                 CreativeType = CreativeType.Image,
                 AspectRatio = "1:1",
-                Brief = new Brief { ProductName = node.Data.Title, ProductDescription = prompt, KeyBenefit = prompt },
+                Brief = new Brief { ProductName = TextLimits.Cut(node.Data.Title, TextLimits.Name) ?? "", ProductDescription = TextLimits.Cut(prompt, TextLimits.Prompt), KeyBenefit = TextLimits.Cut(prompt, 400) ?? "" },
             };
             media = await providers.GenerateAsync(generation, new Concept { Hook = node.Data.Title, AspectRatio = "1:1" });
         }
@@ -417,6 +418,12 @@ public class FlowRunner(
             .Select(s => nodes[s.NodeId].Data.Prompt!.Trim())
             .ToList();
         var previous = PreviousResult(run, node, nodes, edges);
+        // Nothing connected: the card's own prompt (and product photo) make the ad, in one generation.
+        var ownPrompt = upstreamPrompts.Count == 0 && !string.IsNullOrWhiteSpace(node.Data.Prompt) ? node.Data.Prompt.Trim() : null;
+        var ownPhoto = previous is null
+            ? (node.Data.Attachments ?? []).Where(a => a.Kind == "image" && !string.IsNullOrWhiteSpace(a.Url)).Select(a => a.Url).FirstOrDefault()
+            : null;
+        if (ownPrompt is not null) upstreamPrompts.Add(ownPrompt);
         var upstreamDocuments = run.Steps
             .Where(s => ancestors.Contains(s.NodeId) && nodes.TryGetValue(s.NodeId, out var n) && n.Type == "prompt")
             .SelectMany(s => DocumentUrls(nodes[s.NodeId]))
@@ -441,14 +448,14 @@ public class FlowRunner(
             Brief = new Brief
             {
                 ProductName = string.IsNullOrWhiteSpace(flowName) ? node.Data.Title : flowName,
-                ProductDescription = string.Join("\n\n", upstreamPrompts.Select((p, i) => $"Step {i + 1}: {p}")),
+                ProductDescription = ownPrompt ?? string.Join("\n\n", upstreamPrompts.Select((p, i) => $"Step {i + 1}: {p}")),
                 TargetAudience = "General consumers",
                 TargetMarket = "United States",
                 Language = "English (US)",
                 Tone = string.IsNullOrWhiteSpace(brand?.Tone) ? "Bold & punchy" : brand!.Tone,
                 KeyBenefit = lastPrompt.Split('.', '!', '\n')[0].Trim(),
                 CallToAction = string.IsNullOrWhiteSpace(brand?.DefaultCta) ? "Shop now" : brand!.DefaultCta,
-                ReferenceCreativeUrl = previous?.MediaUrl,
+                ReferenceCreativeUrl = previous?.MediaUrl ?? ownPhoto,
                 DocumentUrls = upstreamDocuments,
             },
             ConceptCount = count,

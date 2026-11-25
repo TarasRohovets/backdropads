@@ -49,7 +49,7 @@ public static class ProductEndpoints
             var user = store.GetUser(userContext.UserId);
             if (user is null) return Results.Unauthorized();
 
-            var name = request.Name.Trim();
+            var name = TextLimits.Cut(request.Name, TextLimits.Name)!;
             var seed = $"product-{Determinism.Hex($"{userContext.UserId}:{name}:{request.SourceImageUrl}")}";
             var kit = store.GetBrandKit(userContext.WorkspaceId);
 
@@ -59,7 +59,7 @@ public static class ProductEndpoints
                 UserId = user.Id,
                 WorkspaceId = userContext.WorkspaceId,
                 Name = name,
-                Notes = string.IsNullOrWhiteSpace(request.Notes) ? null : request.Notes.Trim(),
+                Notes = string.IsNullOrWhiteSpace(request.Notes) ? null : TextLimits.Cut(request.Notes, TextLimits.LongNote),
                 SourceImageUrl = request.SourceImageUrl,
                 HeroImageUrl = request.SourceImageUrl,
                 HeroImageSeed = seed,
@@ -105,8 +105,8 @@ public static class ProductEndpoints
         {
             var product = store.GetProduct(id, userContext.WorkspaceId);
             if (product is null) return Results.NotFound(new { error = $"Product '{id}' not found." });
-            if (!string.IsNullOrWhiteSpace(request.Name)) product.Name = request.Name.Trim();
-            if (request.Notes is not null) product.Notes = string.IsNullOrWhiteSpace(request.Notes) ? null : request.Notes.Trim();
+            if (!string.IsNullOrWhiteSpace(request.Name)) product.Name = TextLimits.Cut(request.Name, TextLimits.Name)!;
+            if (request.Notes is not null) product.Notes = string.IsNullOrWhiteSpace(request.Notes) ? null : TextLimits.Cut(request.Notes, TextLimits.LongNote);
             return Results.Ok(product);
         });
 

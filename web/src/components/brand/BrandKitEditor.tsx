@@ -325,6 +325,7 @@ export function BrandKitEditor({ open, onOpenChange, kit, onSaved }: BrandKitEdi
                 <Label htmlFor="bkContext">Brand context</Label>
                 <Textarea
                   id="bkContext"
+                  maxLength={3000}
                   className="mt-1.5 min-h-28"
                   placeholder="Who you are, who you sell to, how you talk, what to always say and never say…"
                   value={context}

@@ -156,7 +156,25 @@ export interface Ad {
   /** refine history, oldest first; empty until the first refinement */
   versions?: AdVersion[];
   currentVersion?: number;
+  /** the folder it's saved in, if any */
+  folderId?: string | null;
+  /** the user's own version label ("v1", "v2"…), shown on the card */
+  versionTag?: string | null;
   createdAt: string;
+}
+
+export type FolderColor = "violet" | "pink" | "lime" | "sky" | "honey" | "mint";
+
+/** A folder of saved ads; folders nest through parentId (null = top level). */
+export interface Folder {
+  id: string;
+  parentId?: string | null;
+  name: string;
+  color: FolderColor;
+  position: number;
+  createdAt: string;
+  /** ads directly in this folder */
+  adCount: number;
 }
 
 export interface RoastScores {
@@ -297,4 +315,36 @@ export interface Product {
   rebranded: boolean;
   model: string;
   createdAt: string;
+}
+
+/** A prompt saved to reuse in Create. */
+export interface SavedPrompt {
+  id: string;
+  title: string;
+  text: string;
+  /** which kind of model it was written for */
+  kind: "image" | "video";
+  /** the image / video model it was written for ("nano-banana-pro"); null = any */
+  targetModel?: string | null;
+  /** the group it was written in; null = a prompt on its own */
+  groupId?: string | null;
+  position?: number;
+  useCount: number;
+  lastUsedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Prompts written together from one message ("3 photos: cosy, gift, sale"): one image each in Flows. */
+export interface PromptGroup {
+  id: string;
+  name: string;
+  kind: "image" | "video";
+  ratio: string;
+  targetModel?: string | null;
+  targetModelName?: string | null;
+  /** what the user asked for */
+  message?: string | null;
+  createdAt: string;
+  prompts: SavedPrompt[];
 }
